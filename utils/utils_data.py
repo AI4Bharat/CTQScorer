@@ -1,5 +1,5 @@
-from constants import *
-from utils import lang_abbr_to_lang_code
+from .constants import *
+from .commonutils import lang_abbr_to_lang_code
 import sys
 
 def get_train_test_data(training_source, testing_source, src_lang, dst_lang, is_ranking_for_devset=False):

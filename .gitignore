@@ -8,3 +8,6 @@ paracrawl/
 
 # cached files
 *.pyc
+
+# logs
+logs/
