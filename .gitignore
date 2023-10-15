@@ -1,0 +1,7 @@
+# Ignore datasets
+samanantar/
+europarl/
+paracrawl/
+*.gz
+*.tsv
+*.zip
