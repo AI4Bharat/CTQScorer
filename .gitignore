@@ -5,3 +5,6 @@ paracrawl/
 *.gz
 *.tsv
 *.zip
+
+# cached files
+*.pyc

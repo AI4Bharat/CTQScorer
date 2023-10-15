@@ -16,7 +16,7 @@ gzip -d europarl-v10.de-en.tsv.gz
 gzip -d en-ru.txt.gz
 python extract_data.py
 
-# Clean up unused files
+# Clean up redundant files
 rm europarl-v10.de-en.tsv || true
 rm europarl-v10.fr-en.tsv || true
 rm en-ru.txt || true

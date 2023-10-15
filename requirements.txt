@@ -1,0 +1,16 @@
+sentence-transformers==2.2.2
+indic-nlp-library
+sacrebleu==2.3.1
+accelerate==0.15.0
+bitsandbytes==0.35.4
+transformers==4.24.0
+pandarallel==1.6.4
+tensorboard==2.11.2
+unbabel-comet==2.0.1
+evaluate==0.4.0
+retriv==0.2.0
+seaborn==0.12.2
+wandb==0.15.3
+huggingface-hub==0.12.0
+tqdm==4.64.1
+
