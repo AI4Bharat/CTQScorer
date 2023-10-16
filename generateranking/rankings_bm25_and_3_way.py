@@ -1,4 +1,5 @@
-from utils import load_samples, ALL, QUERY_SRC, QUERY_DST, SRC_DST
+from utils import load_samples
+from utils.constants import ALL, QUERY_SRC, QUERY_DST, SRC_DST
 
 import logging
 import json

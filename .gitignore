@@ -11,3 +11,5 @@ paracrawl/
 
 # logs
 logs/
+*.log
+nohup.out

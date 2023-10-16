@@ -17,7 +17,7 @@ def get_comet_qa_ranking(train_src_path, train_dst_path, test_src_path, test_dst
         json_data = json.load(f)
     
     # load comet qe model
-    model_path = download_model("wmt20-comet-qe-da")
+    model_path = download_model("Unbabel/wmt20-comet-qe-da")
     model = load_from_checkpoint(model_path)
 
     result = {}
