@@ -1,0 +1,1 @@
+nohup python cummulate_features.py --train opusbooks --test opusbooks --src spa_Latn --dst eng_Latn >> cummulate_features.log &

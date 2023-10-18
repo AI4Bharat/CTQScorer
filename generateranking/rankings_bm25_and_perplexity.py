@@ -38,17 +38,9 @@ def get_ppl_ranking(train_src_path, train_dst_path, test_src_path, test_dst_path
     perplexity = Perplexity()
     batch_size=4
     
-    existing_ppls = ''
-    bm25_file_name = bm25_file_name.split('/')[1]
-    with open('{}/{}/{}'.format('rankings_bm25_regression', RANKINGS_BM25_AND_PERPLEXITY, bm25_file_name), 'r') as f:
-        existing_ppls = json.load(f) 
-
     result = {}
     for qid, query in enumerate(queries):
-        existing_ppl = existing_ppls[str(qid)]
         logging.info('qid: {}'.format(qid))
-        src_data = []
-        dst_data = []
         src_dst_data = []
         src_dst_query_data = []
         src_dst_ppls = []
@@ -58,51 +50,28 @@ def get_ppl_ranking(train_src_path, train_dst_path, test_src_path, test_dst_path
         bm25_rankings = list(map(lambda x: x["index"], bm25_rankings))
         for index in bm25_rankings:
             src_dst = '{} {}'.format(training_src_examples[index], training_dst_examples[index])
-            src_dst_query = '{} {}'.format(src_dst, query)
-            
-            for obj in existing_ppl:
-                if obj["index"] == index:
-                    src_dst_ppls.append(obj["src_dst_ppl"])
-                    src_dst_query_ppls.append(obj["src_dst_query_ppl"])
-            
+            src_dst_query = '{} {}'.format(src_dst, query)            
             if len(training_src_examples[index]) == 0:
                 training_src_examples[index] = 'aaaaaaa'
             if len(training_dst_examples[index]) == 0:
                 training_dst_examples[index] = 'aaaaaaa'
-            src_data.append(training_src_examples[index][:1000])
-            dst_data.append(training_dst_examples[index][:1000])
             src_dst_data.append(src_dst)
-            src_dst_query_data.append(src_dst_query)
-
-
-        # max_length = max(list(map(lambda x: len(x), src_data)))
-        # max_length = max_length if max_length < 1000 else 1000
-        # model.config.max_length = max_length
-        src_ppls = perplexity._compute(data=src_data, model=model, tokenizer=tokenizer, batch_size=batch_size)["perplexities"]
-        
-        # max_length = max(list(map(lambda x: len(x), dst_data)))
-        # max_length = max_length if max_length < 1000 else 1000
-        # model.config.max_length = max_length
-        dst_ppls = perplexity._compute(data=dst_data, model=model, tokenizer=tokenizer, batch_size=batch_size)["perplexities"]
-        
-        
+            src_dst_query_data.append(src_dst_query)        
             
-        # max_length = max(list(map(lambda x: len(x), src_dst_data)))
-        # model.config.max_length = max_length
-        # src_dst_ppls = perplexity._compute(data=src_dst_data, model=model, tokenizer=tokenizer, batch_size=batch_size)["perplexities"]
+        max_length = max(list(map(lambda x: len(x), src_dst_data)))
+        model.config.max_length = max_length
+        src_dst_ppls = perplexity._compute(data=src_dst_data, model=model, tokenizer=tokenizer, batch_size=batch_size)["perplexities"]
         
-        # max_length = max(list(map(lambda x: len(x), src_dst_query_data)))
-        # model.config.max_length = max_length
-        # src_dst_query_ppls = perplexity._compute(data=src_dst_query_data, model=model, tokenizer=tokenizer, batch_size=batch_size)["perplexities"]
+        max_length = max(list(map(lambda x: len(x), src_dst_query_data)))
+        model.config.max_length = max_length
+        src_dst_query_ppls = perplexity._compute(data=src_dst_query_data, model=model, tokenizer=tokenizer, batch_size=batch_size)["perplexities"]
         
         ranking = []
-        for (index, src_ppl, dst_ppl, src_dst_ppl, src_dst_query_ppl) in zip(bm25_rankings, src_ppls, dst_ppls, src_dst_ppls, src_dst_query_ppls):
+        for (index, src_dst_ppl, src_dst_query_ppl) in zip(bm25_rankings, src_dst_ppls, src_dst_query_ppls):
             src_dst_ppl = src_dst_ppl if not isNaN(src_dst_ppl) else 999999
             src_dst_query_ppl = src_dst_query_ppl if not isNaN(src_dst_query_ppl) else 999999
             
             ranking.append({"index": index,
-                            "src_ppl": round(float(src_ppl), 2),
-                            "dst_ppl": round(float(dst_ppl), 2),
                             "src_dst_ppl": round(float(src_dst_ppl), 2),
                             "src_dst_query_ppl": round(float(src_dst_query_ppl), 2)
                             })
