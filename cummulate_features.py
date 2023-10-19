@@ -1,7 +1,7 @@
 from utils import init_logging, load_samples, make_dir
-from utils_language import lang_abbr_to_lang_code
-from utils_data import get_train_test_data
-from constants import *
+from utils.commonutils import lang_abbr_to_lang_code
+from utils.utils_data import get_train_test_data
+from utils.constants import *
 import logging
 import json
 import argparse

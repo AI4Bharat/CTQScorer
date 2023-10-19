@@ -32,8 +32,8 @@ from utils.utils_data import get_train_test_data
 from utils.constants import *
 from model_parameters import model_parameters
 from prompts import get_n_shots, construct_zero_shot, construct_prompt
-from utils_language import configure_indic_nlp_library
-configure_indic_nlp_library()
+from scoring_functions import init_comet_computation, init_comet_qe_20_computation, init_comet_da_22_computation, init_chrf
+from scoring_functions import get_chrf_scores, get_comet_scores, get_comet_mean_score, get_comet_qe_20_scores, get_comet_da_22_scores
 
 # %% [markdown]
 # ### Constants
@@ -99,142 +99,13 @@ def clear_gpu_memory():
     torch.cuda.empty_cache()
 
 # %% [markdown]
-# ### Scoring functions
+# ### Initiating Scoring functions
 
 # %%
-# Fix to get around torch error for computing comet score
-def init_comet_computation():
-    os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":16:8"    
-    model_path = download_model("Unbabel/wmt20-comet-da")
-    comet_metric = load_from_checkpoint(model_path)
-    return comet_metric
-
-def init_comet_qe_20_computation():
-    os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":16:8"
-    model_path = download_model("Unbabel/wmt20-comet-qe-da")
-    comet_metric = load_from_checkpoint(model_path)
-    return comet_metric
-
-def init_comet_da_22_computation():
-    os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":16:8"
-    model_path = download_model("Unbabel/wmt22-comet-da")
-    comet_metric = load_from_checkpoint(model_path)
-    return comet_metric
-
-# %%
-chrf = load("chrf")
+chrf = init_chrf()
 comet_da_20_metric = init_comet_computation()
 comet_qe_20_metric = init_comet_qe_20_computation()
 comet_da_22_metric = init_comet_da_22_computation()
-
-# %%
-def get_chrf_scores(predicted, references):
-    tmp_references = []
-    for reference in references:
-        tmp_references.append([reference])
-    references = tmp_references
-
-    chrfscore = chrf.compute(predictions=predicted, references=references).get('score')
-    chrfpp_score = chrf.compute(predictions=predicted, references=references, word_order=2).get('score')
-    chrfscore = round(chrfscore, 2)
-    chrfpp_score = round(chrfpp_score, 2)
-    return chrfscore, chrfpp_score
-
-# %%
-def get_comet_scores(predicted, references, source):
-    comet_metric = comet_da_20_metric
-    scores = []
-
-    # sometimes we just run for 5 to 10 samples
-    k = len(predicted)
-    references = references[:k]
-    source = source[:k]
-
-    idx = 0
-    while idx < len(predicted):
-        batch = int(min(1024, len(predicted) - idx))
-        predicted_batch = predicted[idx: idx + batch]
-        references_batch = references[idx: idx + batch]
-        source_batch = source[idx: idx + batch]
-
-        data = []
-        for src, mt, ref in zip(source_batch, predicted_batch, references_batch):
-            data.append({
-                "src": src,
-                "mt": mt,
-                "ref": ref
-            })
-        
-        comet_score = comet_metric.predict(data, progress_bar=True)        
-        scores.extend(comet_score['scores'])
-        idx += batch
-    
-    return scores
-
-def get_comet_mean_score(predicted, references, source):
-    scores = get_comet_scores(predicted, references, source)
-    mean_score = np.mean(scores)
-    mean_score = round(mean_score, 4)
-    return mean_score
-
-# %%
-def get_comet_qe_20_scores(predicted, source):
-    comet_metric = comet_qe_20_metric
-    scores = []
-
-    # sometimes we just run for 5 to 10 samples
-    k = len(predicted)
-    source = source[:k]
-
-    idx = 0
-    while idx < len(predicted):
-        batch = int(min(1024, len(predicted) - idx))
-        predicted_batch = predicted[idx: idx + batch]
-        source_batch = source[idx: idx + batch]
-
-        data = []
-        for src, mt in zip(source_batch, predicted_batch):
-            data.append({
-                "src": src,
-                "mt": mt,
-            })
-        
-        comet_score = comet_metric.predict(data, progress_bar=True)        
-        scores.extend(comet_score['scores'])
-        idx += batch
-    
-    return scores
-
-# %%
-def get_comet_da_22_scores(predicted, references, source):
-    comet_metric = comet_da_22_metric
-    scores = []
-
-    # sometimes we just run for 5 to 10 samples
-    k = len(predicted)
-    references = references[:k]
-    source = source[:k]
-
-    idx = 0
-    while idx < len(predicted):
-        batch = int(min(1024, len(predicted) - idx))
-        predicted_batch = predicted[idx: idx + batch]
-        references_batch = references[idx: idx + batch]
-        source_batch = source[idx: idx + batch]
-
-        data = []
-        for src, mt, ref in zip(source_batch, predicted_batch, references_batch):
-            data.append({
-                "src": src,
-                "mt": mt,
-                "ref": ref
-            })
-        
-        comet_score = comet_metric.predict(data, progress_bar=True)        
-        scores.extend(comet_score['scores'])
-        idx += batch
-    
-    return scores
 
 # %% [markdown]
 # ### Load Model
@@ -399,23 +270,23 @@ def get_bleu_scores(pipe, mp: model_parameters, experiment=''):
     print('BLEU score -> {}'.format(blue_score))
 
     # obtain comet score
-    comet_score = get_comet_mean_score(predicted=pred_dst, references=dst_test_samples, source=src_test_samples)
+    comet_score = get_comet_mean_score(predicted=pred_dst, references=dst_test_samples, source=src_test_samples, comet_da_20_metric=comet_da_20_metric)
     print('COMET score -> {}'.format(comet_score))
 
-    comet_qe_20_scores = get_comet_qe_20_scores(predicted=pred_dst, source=src_test_samples)
+    comet_qe_20_scores = get_comet_qe_20_scores(predicted=pred_dst, source=src_test_samples, comet_qe_20_metric=comet_qe_20_metric)
     comet_qe_20_scores = list(map(lambda x: round(x, 4), comet_qe_20_scores))
     comet_qe_20_score = round(np.mean(comet_qe_20_scores), 4)
     print('comet_qe_20_score score -> {}'.format(comet_qe_20_score))
 
 
-    comet_da_22_scores = get_comet_da_22_scores(predicted=pred_dst, references=dst_test_samples, source=src_test_samples)
+    comet_da_22_scores = get_comet_da_22_scores(predicted=pred_dst, references=dst_test_samples, source=src_test_samples, comet_da_22_metric=comet_da_22_score)
     comet_da_22_scores = list(map(lambda x: round(x, 4), comet_da_22_scores))
     comet_da_22_score = round(np.mean(comet_da_22_scores), 4)
     print('comet_da_22_score score -> {}'.format(comet_da_22_score))
 
     
     # obtain chrf and chrf++ score
-    chrf_score, chrfpp_score = get_chrf_scores(pred_dst, dst_test_samples)
+    chrf_score, chrfpp_score = get_chrf_scores(pred_dst, dst_test_samples, chrf)
     print('chrF score -> {}, chrF++ score -> {}'.format(chrf_score, chrfpp_score))
 
     with open(scores_file, 'a') as f:
@@ -506,7 +377,7 @@ def get_prompt_scores(pipe, mp: model_parameters, experiment=''):
         srcs = [src_flores_dev_samples[qid]] * len(pred_dst)
         # print(refs)
         # print(srcs)
-        comet_scores = get_comet_scores(predicted=pred_dst, references=refs, source=srcs)
+        comet_scores = get_comet_scores(predicted=pred_dst, references=refs, source=srcs, comet_da_20_metric=comet_da_20_metric)
         comet_scores = list(map(lambda x: round(x, 4), comet_scores))
         # print('COMET score -> {}'.format(comet_scores))
 
