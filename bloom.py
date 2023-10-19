@@ -2,24 +2,15 @@
 # ### Imports and libraries
 
 # %%
-# %pip install bitsandbytes
-# %pip install git+https://github.com/huggingface/transformers.git
-# %pip install accelerate
-
-# %%
-from transformers import AutoModelForCausalLM, AutoTokenizer
-from transformers import XGLMTokenizer, XGLMForCausalLM
+from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
 import torch
-from transformers import pipeline
+from torch.utils.data import Dataset
+from tqdm.auto import tqdm
 
 # %%
-import numpy as np
-from evaluate import load
-import matplotlib.pyplot as plt
-
-# %%
-# from nltk.translate.bleu_score import sentence_bleu
 from sacrebleu import sentence_bleu, corpus_bleu
+from comet import download_model, load_from_checkpoint
+from evaluate import load
 
 # %%
 import ntpath
@@ -29,31 +20,20 @@ import os
 import string
 import time
 import logging
-
-# %%
-from torch.utils.data import Dataset
-from tqdm.auto import tqdm
-
-# %%
-# imports for script unification tasks
-from indicnlp.transliterate.unicode_transliterate import UnicodeIndicTransliterator
-from indicnlp.transliterate.unicode_transliterate import ItransTransliterator
-from sentence_transformers import SentenceTransformer, util
-from sklearn.metrics.pairwise import euclidean_distances
-from utils import get_embeddings, get_cos_sim_for_embeddings
-from utils_language import romanize_sentences, script_convert_sentences
-from cross_lingual import cross_lingual_recommendations
+import re
+import numpy as np
+import matplotlib.pyplot as plt
+from collections import Counter
 
 # %%
 # utils
-from utils import load_samples, make_dir, get_random_name, append_config_to_file
-from utils_language import lang_abbr_to_lang_code, lang_abbr_to_lang
+from utils.commonutils import load_samples, make_dir, get_random_name, append_config_to_file, lang_abbr_to_lang_code, lang_abbr_to_lang
+from utils.utils_data import get_train_test_data
+from utils.constants import *
+from model_parameters import model_parameters
+from prompts import get_n_shots, construct_zero_shot, construct_prompt
 from utils_language import configure_indic_nlp_library
 configure_indic_nlp_library()
-
-# %%
-from model_parameters import model_parameters
-from constants import *
 
 # %% [markdown]
 # ### Constants
@@ -79,9 +59,6 @@ RANDOM_SELECTION = 'random_selection'
 # Constants related to Dataset
 SAMANANTAR = 'samanantar'
 FLORES = 'flores'
-IN22_OTHER_SOURCES = 'in22_other_sources'
-IN22_CONVERSATIONS = 'in22_conversations'
-IN22_WIKIPEDIA = 'in22_wikipedia'
 
 # %% [markdown]
 # ### Helper functions
@@ -105,8 +82,52 @@ def read_recommendations(strategy, training_source, testing_source, src_lang, ds
     return json_data
 
 # %%
+def get_samples(training_source, testing_source, src_lang, dst_lang, is_ranking_for_devset=False):
+    train_src_path, train_dst_path, test_src_path, test_dst_path = get_train_test_data(training_source, testing_source, src_lang, dst_lang, is_ranking_for_devset)
+    src_train_samples = load_samples(train_src_path)
+    dst_train_samples = load_samples(train_dst_path)
+    src_test_samples = load_samples(test_src_path)
+    dst_test_samples = load_samples(test_dst_path)
+    
+    return src_train_samples, dst_train_samples, src_test_samples, dst_test_samples
 
+# %%
+def clear_gpu_memory():
+    # clear cache
+    import gc
+    gc.collect()
+    torch.cuda.empty_cache()
+
+# %% [markdown]
+# ### Scoring functions
+
+# %%
+# Fix to get around torch error for computing comet score
+def init_comet_computation():
+    os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":16:8"    
+    model_path = download_model("Unbabel/wmt20-comet-da")
+    comet_metric = load_from_checkpoint(model_path)
+    return comet_metric
+
+def init_comet_qe_20_computation():
+    os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":16:8"
+    model_path = download_model("Unbabel/wmt20-comet-qe-da")
+    comet_metric = load_from_checkpoint(model_path)
+    return comet_metric
+
+def init_comet_da_22_computation():
+    os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":16:8"
+    model_path = download_model("Unbabel/wmt22-comet-da")
+    comet_metric = load_from_checkpoint(model_path)
+    return comet_metric
+
+# %%
 chrf = load("chrf")
+comet_da_20_metric = init_comet_computation()
+comet_qe_20_metric = init_comet_qe_20_computation()
+comet_da_22_metric = init_comet_da_22_computation()
+
+# %%
 def get_chrf_scores(predicted, references):
     tmp_references = []
     for reference in references:
@@ -120,19 +141,6 @@ def get_chrf_scores(predicted, references):
     return chrfscore, chrfpp_score
 
 # %%
-# Fix to get around torch error for computing comet score
-from comet import download_model, load_from_checkpoint
-def init_comet_computation():
-    import os
-    os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":16:8"
-    # comet_metric = load('comet' , 'Unbabel/wmt20-comet-da')
-    
-    model_path = download_model("Unbabel/wmt20-comet-da")
-    comet_metric = load_from_checkpoint(model_path)
-    return comet_metric
-
-comet_da_20_metric = init_comet_computation()
-
 def get_comet_scores(predicted, references, source):
     comet_metric = comet_da_20_metric
     scores = []
@@ -158,31 +166,18 @@ def get_comet_scores(predicted, references, source):
             })
         
         comet_score = comet_metric.predict(data, progress_bar=True)        
-        # comet_score = comet_metric.compute(predictions=predicted_batch, references=references_batch, sources=source_batch, progress_bar=True)
         scores.extend(comet_score['scores'])
         idx += batch
     
     return scores
 
-# %%
 def get_comet_mean_score(predicted, references, source):
     scores = get_comet_scores(predicted, references, source)
     mean_score = np.mean(scores)
-    # print(len(scores))
     mean_score = round(mean_score, 4)
     return mean_score
 
 # %%
-def init_comet_qe_20_computation():
-    import os
-    os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":16:8"
-    # comet_metric = load('comet' , 'Unbabel/wmt20-comet-da')
-    
-    model_path = download_model("Unbabel/wmt20-comet-qe-da")
-    comet_metric = load_from_checkpoint(model_path)
-    return comet_metric
-
-comet_qe_20_metric = init_comet_qe_20_computation()
 def get_comet_qe_20_scores(predicted, source):
     comet_metric = comet_qe_20_metric
     scores = []
@@ -211,16 +206,6 @@ def get_comet_qe_20_scores(predicted, source):
     return scores
 
 # %%
-def init_comet_da_22_computation():
-    import os
-    os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":16:8"
-    # comet_metric = load('comet' , 'Unbabel/wmt20-comet-da')
-    
-    model_path = download_model("Unbabel/wmt22-comet-da")
-    comet_metric = load_from_checkpoint(model_path)
-    return comet_metric
-
-comet_da_22_metric = init_comet_da_22_computation()
 def get_comet_da_22_scores(predicted, references, source):
     comet_metric = comet_da_22_metric
     scores = []
@@ -246,177 +231,23 @@ def get_comet_da_22_scores(predicted, references, source):
             })
         
         comet_score = comet_metric.predict(data, progress_bar=True)        
-        # comet_score = comet_metric.compute(predictions=predicted_batch, references=references_batch, sources=source_batch, progress_bar=True)
         scores.extend(comet_score['scores'])
         idx += batch
     
     return scores
 
 # %% [markdown]
-# ### Different types of prompt construction
-
-# %%
-def get_n_mixed_shots(mp: model_parameters, src_samples, dst_samples, script_converted_samples, n_shots, src_lang, dst_lang, itr_lang, recommendations=[], to_english=True):
-    random.seed(mp.seed)
-    random_numbers = recommendations
-    THRESHOLD = 120
-    
-    # If no recommendations are present, then generate random numbers
-    while(len(random_numbers) < n_shots):
-        x = random.randint(0,len(src_samples) - 1)
-        sent = src_samples[x].strip('"').split()
-        if x in random_numbers or len(sent) > THRESHOLD:
-            continue
-        random_numbers.append(x)
-
-    content_org_sample = ''
-    content_converted_sample = ''
-    count = 0
-    i = 0
-    while count < n_shots and i < len(random_numbers):
-        sent = src_samples[random_numbers[i]].strip('"').split()
-        src_sample = src_samples[random_numbers[i]].strip('"')
-        dst_sample = dst_samples[random_numbers[i]].strip('"')
-        script_converted_sample = script_converted_samples[random_numbers[i]].strip('"')
-
-        # TODO: Figure out if [Hindi Sentence], [Gujarati sentence] for script conversions make a difference
-        if len(sent) < THRESHOLD:
-            if to_english:            
-                # get samples from hin sentences
-                if count % 2 == 0:
-                    content_org_sample = content_org_sample + """{} Sentence: "{}"
-{} Sentence: "{}"
-###
-""".format(src_lang, src_sample, dst_lang, dst_sample)
-                
-                # get samples from hindi sentences which are script converted to gujarati
-                else:
-                    content_converted_sample = content_converted_sample + """{} Sentence: "{}"
-{} Sentence: "{}"
-###
-""".format(src_lang, script_converted_sample, dst_lang, dst_sample)
-
-            else:
-                # get samples from eng-hin sentences
-                if count % 2 == 0:
-                    content_org_sample = content_org_sample + """{} Sentence: "{}"
-{} Sentence: "{}"
-###
-""".format(src_lang, src_sample, dst_lang, dst_sample)
-                
-                # get samples from hindi sentences which are script converted to gujarati
-                else:
-                    content_converted_sample = content_converted_sample + """{} Sentence: "{}"
-{} Sentence: "{}"
-###
-""".format(src_lang, src_sample, dst_lang, script_converted_sample)
-            
-            count += 1
-
-        i += 1
-
-    return content_org_sample + content_converted_sample
-
-# %%
-# returns n-shot example for the given source and target languages.
-# we can pass recommendations for an input sample obtained from BM25 & reranking algorithm.
-def get_n_shots(mp: model_parameters, src_samples, dst_samples, n_shots, src_lang, dst_lang, recommendations=[], transliterate_flags=(False,'','')):
-
-    # start_time = time.time()
-    # sometimes the recommendations from BM25 is less than n-shots
-    # then we randomly choose samples from the dev dataset
-    random.seed(mp.seed)
-    random_numbers = recommendations
-
-    # Don't add sentences larger than 120 words
-    THRESHOLD = 120
-    for random_number in random_numbers:
-        sent = src_samples[random_number].strip('"').split()
-        if len(sent) > THRESHOLD:
-            random_numbers.remove(random_number)
-
-    while(len(random_numbers) < n_shots):
-        x = random.randint(0,len(src_samples) - 1)
-        sent = src_samples[x].strip('"').split()
-        if x in random_numbers or len(sent) > THRESHOLD:
-            continue
-        random_numbers.append(x)
-
-    content = ''
-
-    count = 0
-    i = 0
-    while count < n_shots and i < len(random_numbers):
-        sent = src_samples[random_numbers[i]].strip('"').split()
-        src_sample = src_samples[random_numbers[i]].strip('"')
-        dst_sample = dst_samples[random_numbers[i]].strip('"')
-
-        if transliterate_flags[0]:
-            src_sample = UnicodeIndicTransliterator.transliterate(src_sample, transliterate_flags[1], transliterate_flags[2])
-
-        if len(sent) < THRESHOLD:
-            count += 1
-            if n_shots == 1:
-                content = content + """{} Sentence: "{}"
-{} Sentence: "{}"
-###
-""".format(src_lang, src_sample, dst_lang, dst_sample)
-            else:
-                content = content + """{} Sentence: "{}"
-{} Sentence: "{}"
-###
-""".format(src_lang, src_sample, dst_lang, dst_sample)
-        i += 1
-
-    return content
-
-# %%
-def get_shot_from_input(ind, src_test_samples, dst_test_samples, n_shots, src_lang, dst_lang):
-    content = """{} Sentence: "{}"
-{} Sentence: "{}"
-###
-""".format(src_lang, src_test_samples[ind], dst_lang, dst_test_samples[ind])
-    return content
-
-# %%
-
-
-# %%
-# This function concatenates the n-shots and the given input sample
-def construct_prompt(shots, input_sample, src_lang, dst_lang, n_shots=0):
-    if n_shots == 1:
-        return shots + """{} Sentence: "{}"
-{} Sentence: """.format(src_lang, input_sample.strip('"'), dst_lang)
-    return shots + """{} Sentence: "{}"
-{} Sentence: """.format(src_lang, input_sample.strip('"'), dst_lang)
-
-# %%
-# This function generates zero shot example
-def construct_zero_shot(input_sample, src_lang, dst_lang):
-    return """Translate {} Sentence: "{}" to {} Sentence: """.format(src_lang, input_sample.strip('"'), dst_lang)
+# ### Load Model
 
 # %%
 # This function returns the model based on the arguments we pass.
-# If use_8_bit is true the function returns the quantizied 8-bit model.
 def get_model(model_name, type_of_algo='Greedy', use_8_bit=False):
-    
-    """
-    from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
-    model = "facebook/opt-30b"
 
-    model_kwargs = {"device_map": "auto", "load_in_8bit": True}
-    m = AutoModelForCausalLM.from_pretrained(model, **model_kwargs)
-
-    tokenizer = AutoTokenizer.from_pretrained(model, use_fast=False)
-    generator = pipeline(task="text-generation", model=m, tokenizer=tokenizer)
-    """
-    # Use 8-bit
     model_kwargs = {"device_map": "auto"}
     if use_8_bit:
         model_kwargs= {"device_map": "auto", "load_in_8bit": True}
 
     pipe = None
-
     if model_name == XGLM_7B:
         model = AutoModelForCausalLM.from_pretrained(XGLM_7B, **model_kwargs)
         tokenizer = AutoTokenizer.from_pretrained(XGLM_7B, use_fast=False)
@@ -424,7 +255,6 @@ def get_model(model_name, type_of_algo='Greedy', use_8_bit=False):
         pipe = pipeline('text-generation', model=model, tokenizer=tokenizer,
                         return_full_text=False, early_stopping=True)
     else:
-        # torch_dtype=torch.float32
         if type_of_algo == 'Greedy' or type_of_algo == '':
             pipe = pipeline(model=model_name, model_kwargs=model_kwargs, 
             return_full_text=False, early_stopping=True)
@@ -434,163 +264,18 @@ def get_model(model_name, type_of_algo='Greedy', use_8_bit=False):
         
     return pipe
 
-# %%
-def get_shots_from_cross_lingual(recommendations, inc_order=False):
-    content = ''
-    if inc_order:
-        recommendations.reverse()
-    for recommendation in recommendations:
-        src_sample = recommendation[0]
-        dst_sample = recommendation[1]
-        src_lang_code = recommendation[2]
-        dst_lang_code = 'eng_Latn'
-
-        content = content + """{} Sentence: "{}"
-{} Sentence: "{}"
-###
-""".format(lang_abbr_to_lang.get(src_lang_code), src_sample, lang_abbr_to_lang.get(dst_lang_code), dst_sample)
-    return content
+# %% [markdown]
+# ### Preprocessing prompts, batching prompts and post processing outputs
 
 # %%
-from utils_data import get_train_test_data
-def get_samples(training_source, testing_source, src_lang, dst_lang, is_ranking_for_devset=False, intr_lang=''):
-    train_src_path, train_dst_path, test_src_path, test_dst_path = get_train_test_data(training_source, testing_source, src_lang, dst_lang, is_ranking_for_devset)
-    src_train_samples = load_samples(train_src_path)
-    dst_train_samples = load_samples(train_dst_path)
-    src_test_samples = load_samples(test_src_path)
-    dst_test_samples = load_samples(test_dst_path)
-
-    # consider intermediate language in case
-    if intr_lang != '':
-        if training_source == 'flores':
-            intr_train_path = 'dataset/train/{}.dev'.format(intr_lang)
-        elif training_source == 'samanantar':
-            intr_lang = lang_abbr_to_lang_code.get(intr_lang)
-            intr_train_path = 'dataset/samanantar/en-{}/train.{}'.format(intr_lang, intr_lang)
-        intr_lang_samples = load_samples(intr_train_path)
-        return src_train_samples, dst_train_samples, src_test_samples, dst_test_samples, intr_lang_samples
-
-    return src_train_samples, dst_train_samples, src_test_samples, dst_test_samples
+from MTDataset import MTDataset
+from process_outputs import predict_outputs
+from preprocess_prompts import handle_repetitive_examples
 
 # %% [markdown]
-# ### Experiment BM25, LaBSE and other example selection algorithms
+# ### Function to generate MT and evaluating translation
 
 # %%
-"""
-Class to run the input samples in a batch
-"""
-class MyDataset(Dataset):
-    
-    def __init__(self):
-        self.prompts = []
-        self.inputs = []
-    
-    def __len__(self):
-        return len(self.prompts)
-
-    def __getitem__(self, index):
-        return self.prompts[index]
-
-    def addprompt(self, prompt):
-        self.prompts.append(prompt)
-
-    def addinput(self, input):
-        self.inputs.append(input)
-
-    def getNumTokens(self, start_index):
-        inputs_in_batch = self.inputs[start_index : start_index + BATCH_SIZE]
-        inputs_in_batch = list(map(lambda x: x.split(), inputs_in_batch))
-        tokens_in_input_batch = list(map(lambda x: len(x), inputs_in_batch))
-        max_tokens = max(tokens_in_input_batch)
-
-        return int(max_tokens * 1.5)
-
-# %%
-def post_process_output(output):
-    output = output.split('\n###')[0]
-    output = output.split('###')[0]
-    output = output.strip().strip('"').replace('\n', '')
-    return output
-
-"""
-Given the model and an object with prompts, this function
-predicts the outputs in a batch and writes it to the file
-and returns the list of outputs.
-"""
-def predict_outputs(pipe, datasetObj, prediction_file, model_name='', experiment_flags=('','','')):
-    start_time = time.time()
-
-    pred_dst = []
-    isOPTModel = 'opt' in model_name
-
-    for start_index in tqdm(range(0, len(datasetObj), BATCH_SIZE)):
-        
-        for output in pipe(datasetObj.prompts[start_index: start_index + BATCH_SIZE], 
-        max_new_tokens=datasetObj.getNumTokens(start_index), batch_size=BATCH_SIZE):
-            
-            # clean up the output obtained from model for evaluation purpose
-            output = post_process_output(output[0].get('generated_text'))
-            
-            # for en-xx script converting only when examples have non-dst script
-            if experiment_flags[0] == 'exp_48' or experiment_flags[0] == 'exp_49':
-                output = script_convert_sentences([output], experiment_flags[1], experiment_flags[2])[0]
-
-            # print(output)
-            pred_dst.append(output)
-
-            # capture output obtained from model
-            with open(prediction_file, 'a') as f:
-                f.write('{}\n'.format(output))
-        
-    end_time = time.time()
-    print('Time for one set: {}'.format(round(end_time - start_time, 3)))
-    return pred_dst
-
-# %%
-from collections import Counter
-import re
-
-def has_similar_no_of_tokens(existing, current):
-    matched = {key: min(existing[key], current[key]) for key in current if key in existing }
-    total_no_tokens_matched = sum(matched.values())
-    total_no_tokens_in_current = sum(current.values())
-    # For some reason we get empty strings some times
-    if total_no_tokens_in_current == 0:
-        return True
-    similarity = total_no_tokens_matched / total_no_tokens_in_current
-    # print(similarity)
-    return True if similarity >= 0.8 else False
-
-def check_similar_sent_exists_in_group(existing_group, current):
-    for existing in existing_group:
-        if has_similar_no_of_tokens(existing, current) or has_similar_no_of_tokens(current, existing):
-            return True
-    return False
-
-def handle_repetitive_examples(src_train_samples, dst_train_samples, recommendations):
-    filtered_indexes = []
-    src_group = []
-    dst_group = []
-    
-    for index in recommendations:
-        src_sent = re.sub('[?,.!।]+', '', src_train_samples[index].lower())
-        dst_sent = re.sub('[?,.!।]+', '', dst_train_samples[index].lower())
-
-        src_tokens_counter = dict(Counter(src_sent.split()))
-        dst_tokens_counter = dict(Counter(dst_sent.split()))
-        
-        if check_similar_sent_exists_in_group(src_group, src_tokens_counter) \
-        or check_similar_sent_exists_in_group(dst_group, dst_tokens_counter):
-            continue
-        else:
-            src_group.append(src_tokens_counter)
-            dst_group.append(dst_tokens_counter)
-            filtered_indexes.append(index)
-    
-    return filtered_indexes
-
-# %%
-
 # This function evaluates the BLOOM model and also captures the MT outputs
 def get_bleu_scores(pipe, mp: model_parameters, experiment=''):
     model_name = mp.name.split('/')[1]
@@ -605,7 +290,6 @@ def get_bleu_scores(pipe, mp: model_parameters, experiment=''):
     make_dir(prompts_dir)
 
     # make note of configuration
-    # '{}, {}, {}, {}, {}, {}, {}, {}, {}\n'.format(name, type_of_algo, max_new_tokens, use_8_bit, toEnglish, num_of_shots, reranking, dataset, rec_source)
     scores_file = '{}/scores.csv'.format(output_dir)
     msg = '{} [{}]\n'.format(str(mp).strip(), experiment)
     append_config_to_file(scores_file, msg=msg)
@@ -619,13 +303,14 @@ def get_bleu_scores(pipe, mp: model_parameters, experiment=''):
         rankings = read_recommendations(mp.strategy, mp.training_source, mp.testing_source, mp.src_lang, mp.dst_lang, mp.strategy_nested)
         if len(rankings) == 0:
             print('No ranking found for: {}'.format(src_lang))
+            return
 
     # capture configuration and generate random name for file to map the configuration
     random_name = get_random_name()
     prediction_file = '{}/{}_{}_{}_{}_{}_shots_pred_{}.txt'.format(output_dir, experiment, model_name, src_lang, dst_lang, mp.no_of_shots, random_name)
 
     # create an object to batch the examples
-    datasetObj = MyDataset()
+    datasetObj = MTDataset()
     
     # all prompts
     prompts = ''
@@ -737,288 +422,7 @@ def get_bleu_scores(pipe, mp: model_parameters, experiment=''):
         f.write('{},{},{},{},{},{},{},{},{},{},{},{},{}\n'.format(model_name, mp.type_of_algo, src_lang, dst_lang, mp.no_of_shots, blue_score, comet_score, chrf_score, chrfpp_score, comet_qe_20_score, comet_da_22_score, mp.use_8_bit, random_name))
 
 # %% [markdown]
-# ### Script Unification
-# 
-# Consider an LLM which has been pretrained with languages in various
-# scripts including Bengali (bn), Meitei (mni) and English (en).
-# Consider the task is to translate from mni to en.
-# But we have only test data for mni to en and no parallel training data for mni-en.
-# So we retrieve from bn to en dataset.
-# We can use LaBSE as our retriever.
-# We script-convert mni to bn and then search in bn-en training dataset. The
-#  assumption here is that mni and bn are close and the retrieved results
-# are similar to the test input.
-# We now have two options: (1) we can use the bn-en retrieved examples as
-# prompt; (2) we can use the script converted bn to mni paired with en as
-# the prompt.
-# We compare between these two settings.
-
-# %%
-def retrive_similar_sentences(query_sentences, dev_sentences, k=32):
-    # generate embeddings
-    query_embeddings = get_embeddings(query_sentences)
-    dev_embeddings = get_embeddings(dev_sentences)
-
-    # calculate the nearest euclidean distance
-    euclidean_dists = euclidean_distances(query_embeddings, dev_embeddings)
-    rows, cols = euclidean_dists.shape
-
-    # sort scores and return the closest samples
-    scores = {}
-    only_indexes = {}
-    for i in range(rows):
-        for j in range(cols):
-            if i in scores:
-                scores[i].append({"doc_id": j, "score": round(float(euclidean_dists[i][j]), 3)})
-            else:
-                scores[i] = [{"doc_id": j, "score": round(float(euclidean_dists[i][j]), 3)}]
-
-        scores[i] = sorted(scores[i], key=lambda d: d['score']) 
-        only_indexes[i] = [doc["doc_id"] for doc in scores[i][:k]]
-    
-    return scores, only_indexes
-
-# %%
-def get_bloom_scores_using_script_unification(pipe, mp: model_parameters, src_lang_code='', dst_lang_code='', intr_lang_code='', experiment='', script_convert_for_retrival=False):
-    
-    # model name
-    model_name = mp.name.split('/')[1]
-
-    # get language using language code
-    src_lang = lang_abbr_to_lang.get(src_lang_code)
-    intr_lang = lang_abbr_to_lang.get(intr_lang_code)
-    dst_lang = lang_abbr_to_lang.get(dst_lang_code)
-
-    src_train_samples, dst_train_samples, src_test_samples, dst_test_samples, intr_train_examples = get_samples(mp.training_source, mp.testing_source, 
-                                                                src_lang_code, dst_lang_code, is_ranking_for_devset=False, intr_lang=intr_lang_code)
-
-    # script convert sentences from src_lang to intr_lang
-    script_converted_query_sents = script_convert_sentences(src_test_samples, src_lang_code, intr_lang_code)
-
-    rankings = []
-    if mp.has_reranking:
-        if script_convert_for_retrival:
-            scores, rankings = retrive_similar_sentences(script_converted_query_sents, intr_train_examples)
-        else:
-            # print('using labse example ranking')
-            scores, rankings = retrive_similar_sentences(src_test_samples, intr_train_examples)
-
-    # create output directory
-    output_dir = 'outputs'
-    make_dir(output_dir)
-
-    # make note of configuration
-    scores_file = '{}/scores.csv'.format(output_dir)
-    configuration = '[Script Unification] {}, {}, {}, {}, {}\n'.format(src_lang_code, intr_lang_code, dst_lang_code, str(mp).strip(), experiment)
-    append_config_to_file(scores_file, configuration)
-
-    # capture configuration
-    random_name = get_random_name()
-    prediction_file = '{}/{}_{}_{}_{}_{}_{}_shots_{}_pred_{}.txt'.format(output_dir, experiment, model_name, mp.type_of_algo, src_lang_code, dst_lang_code, mp.no_of_shots, mp.use_8_bit, random_name)
-    
-    # create an object to batch the examples
-    datasetObj = MyDataset()
-
-    # in the case of hin-eng, hin releated examples are converted to guj
-    script_converted_intr_train_examples = script_convert_sentences(intr_train_examples, intr_lang_code, src_lang_code)
-    romanized_intr_train_examples = romanize_sentences(intr_train_examples, intr_lang_code)
-
-    # in the case of other3: guj side of guj-eng is script converted to deva
-    script_converted_train_examples = script_convert_sentences(src_train_samples, src_lang_code, intr_lang_code)
-
-    # in the case of other4: guj side of guj-eng is romanized
-    romanized_train_examples = romanize_sentences(src_train_samples, src_lang_code)
-
-    # in the case of exp_38: kan side of eng-kan is script converted to deva
-    script_convert_dst_train_examples_to_intr = script_convert_sentences(dst_train_samples, dst_lang_code, intr_lang_code)
-
-    # in the case of exp_40: hin side of eng-hin is script converted to kan
-    script_convert_intr_train_examples_to_dst = script_convert_sentences(intr_train_examples, intr_lang_code, dst_lang_code)
-
-    # in the case of exp_42 or exp_43 compute the best samples from cross lingual
-    if experiment == 'exp_42' or experiment == 'exp_43':
-        cross_lingual_ecommendations = cross_lingual_recommendations(src_lang_code)
-
-    for qid, input_sample in enumerate(src_test_samples):
-        recommendations = []
-        if mp.has_reranking:
-            recommendations = rankings[qid]
-
-        # change in direction en-xx
-        if experiment == 'exp_48':
-            shots = get_n_shots(mp, src_train_samples, script_convert_dst_train_examples_to_intr, mp.no_of_shots, src_lang, dst_lang, recommendations=[])
-            content = construct_prompt(shots, input_sample, src_lang, dst_lang, n_shots=mp.no_of_shots)
-        elif experiment == 'exp_49':
-            shots = get_n_shots(mp, src_train_samples, intr_train_examples, mp.no_of_shots, src_lang, intr_lang, recommendations=[])
-            content = construct_prompt(shots, input_sample, src_lang, dst_lang, n_shots=mp.no_of_shots)
-        elif experiment == 'exp_50':
-            shots = get_n_shots(mp, src_train_samples, script_convert_intr_train_examples_to_dst, mp.no_of_shots, src_lang, intr_lang, recommendations=[])
-            content = construct_prompt(shots, input_sample, src_lang, dst_lang, n_shots=mp.no_of_shots)
-        elif experiment == 'exp_51':
-            shots = get_n_mixed_shots(mp, src_train_samples, intr_train_examples, script_convert_intr_train_examples_to_dst, mp.no_of_shots, src_lang, intr_lang, dst_lang, recommendations=[], to_english=False)
-            content = construct_prompt(shots, input_sample, src_lang, dst_lang, n_shots=mp.no_of_shots)
-
-        elif experiment == 'other3':
-            shots = get_n_shots(mp, script_converted_train_examples, dst_train_samples, mp.no_of_shots, src_lang, dst_lang, recommendations=[])
-            input_sample = script_convert_sentences([input_sample], src_lang_code, intr_lang_code)[0]
-            content = construct_prompt(shots, input_sample, src_lang, dst_lang, n_shots=mp.no_of_shots)
-        elif experiment == 'exp_3.1':
-            shots = get_n_shots(mp, script_converted_train_examples, dst_train_samples, mp.no_of_shots, src_lang, dst_lang, recommendations=[])
-            content = construct_prompt(shots, input_sample, src_lang, dst_lang, n_shots=mp.no_of_shots)
-        elif experiment == 'exp_3.2' or experiment == 'exp_27':
-            shots = get_n_shots(mp, romanized_train_examples, dst_train_samples, mp.no_of_shots, src_lang, dst_lang, recommendations=[])
-            content = construct_prompt(shots, input_sample, src_lang, dst_lang, n_shots=mp.no_of_shots)
-        elif experiment == 'other4' or experiment == 'exp_28':
-            shots = get_n_shots(mp, romanized_train_examples, dst_train_samples, mp.no_of_shots, src_lang, dst_lang, recommendations=[])
-            input_sample = romanize_sentences([input_sample], src_lang_code)[0]
-            content = construct_prompt(shots, input_sample, src_lang, dst_lang, n_shots=mp.no_of_shots)
-        elif experiment == 'other5':
-            shots = get_n_shots(mp, intr_train_examples, dst_train_samples, mp.no_of_shots, intr_lang, dst_lang, recommendations=[])
-            content = construct_prompt(shots, input_sample, src_lang, dst_lang, n_shots=mp.no_of_shots)
-        elif experiment == 'other6':
-            shots = get_n_shots(mp, intr_train_examples, dst_train_samples, mp.no_of_shots, intr_lang, dst_lang, recommendations=[])
-            input_sample = script_convert_sentences([input_sample], src_lang_code, intr_lang_code)[0]
-            content = construct_prompt(shots, input_sample, src_lang, dst_lang, n_shots=mp.no_of_shots)
-        elif experiment == 'other7':
-            shots = get_n_shots(mp, script_converted_intr_train_examples, dst_train_samples, mp.no_of_shots, intr_lang, dst_lang, recommendations=[])
-            content = construct_prompt(shots, input_sample, src_lang, dst_lang, n_shots=mp.no_of_shots)
-        elif experiment == 'exp_7.1':
-            shots = get_n_mixed_shots(mp, intr_train_examples, dst_train_samples, script_converted_intr_train_examples, mp.no_of_shots, intr_lang, dst_lang, src_lang, recommendations=[])
-            content = construct_prompt(shots, input_sample, src_lang, dst_lang, n_shots=mp.no_of_shots)
-        elif experiment == 'other8':
-            shots = get_n_shots(mp, romanized_intr_train_examples, dst_train_samples, mp.no_of_shots, intr_lang, dst_lang, recommendations=[])
-            content = construct_prompt(shots, input_sample, src_lang, dst_lang, n_shots=mp.no_of_shots)
-        elif experiment == 'other9':
-            shots = get_n_shots(mp, romanized_intr_train_examples, dst_train_samples, mp.no_of_shots, intr_lang, dst_lang, recommendations=[])
-            input_sample = romanize_sentences([input_sample], src_lang_code)[0]
-            content = construct_prompt(shots, input_sample, src_lang, dst_lang, n_shots=mp.no_of_shots)
-        elif experiment == 'exp_9.1':
-            shots = get_n_shots(mp, script_converted_train_examples, dst_train_samples, mp.no_of_shots, src_lang, dst_lang, recommendations=[])
-            content = construct_prompt(shots, input_sample, src_lang, dst_lang, n_shots=mp.no_of_shots)
-        elif experiment == 'exp_9.2':
-            shots = get_n_shots(mp, script_converted_train_examples, dst_train_samples, mp.no_of_shots, src_lang, dst_lang, recommendations=[])
-            content = construct_prompt(shots, input_sample, src_lang, dst_lang, n_shots=mp.no_of_shots)
-        
-        # experiments for Panjabi
-        elif experiment == 'exp_9.3':
-            shots = get_n_shots(mp, src_train_samples, dst_train_samples, mp.no_of_shots, src_lang, dst_lang, recommendations=[])
-            content = construct_prompt(shots, input_sample, src_lang, dst_lang, n_shots=mp.no_of_shots)
-        elif experiment == 'exp_9.4':
-            shots = get_n_shots(mp, script_converted_train_examples, dst_train_samples, mp.no_of_shots, src_lang, dst_lang, recommendations=[])
-            content = construct_prompt(shots, input_sample, src_lang, dst_lang, n_shots=mp.no_of_shots)
-        elif experiment == 'exp_9.5':
-            shots = get_n_shots(mp, intr_train_examples, dst_train_samples, mp.no_of_shots, intr_lang, dst_lang, recommendations=[])
-            content = construct_prompt(shots, input_sample, src_lang, dst_lang, n_shots=mp.no_of_shots)
-        elif experiment == 'exp_9.6':
-            shots = get_n_shots(mp, script_converted_intr_train_examples, dst_train_samples, mp.no_of_shots, intr_lang, dst_lang, recommendations=[])
-            content = construct_prompt(shots, input_sample, src_lang, dst_lang, n_shots=mp.no_of_shots)
-
-        elif experiment == 'other22':
-            shots = get_n_shots(mp, intr_train_examples, dst_train_samples, mp.no_of_shots, intr_lang, dst_lang, recommendations=recommendations)
-            input_sample = script_convert_sentences([input_sample], src_lang_code, intr_lang_code)[0]
-            content = construct_prompt(shots, input_sample, src_lang, dst_lang, n_shots=mp.no_of_shots)
-        elif experiment == 'other23':
-            shots = get_n_shots(mp, script_converted_intr_train_examples, dst_train_samples, mp.no_of_shots, intr_lang, dst_lang, recommendations=recommendations)
-            content = construct_prompt(shots, input_sample, src_lang, dst_lang, n_shots=mp.no_of_shots)
-
-        # experiments for Kannada
-        elif experiment == 'exp_32':
-            shots = get_n_shots(mp, script_converted_train_examples, dst_train_samples, mp.no_of_shots, src_lang, dst_lang, recommendations=[])
-            content = construct_prompt(shots, input_sample, src_lang, dst_lang, n_shots=mp.no_of_shots)
-        elif experiment == 'exp_33':
-            shots = get_n_shots(mp, intr_train_examples, dst_train_samples, mp.no_of_shots, intr_lang, dst_lang, recommendations=[])
-            content = construct_prompt(shots, input_sample, src_lang, dst_lang, n_shots=mp.no_of_shots)
-        elif experiment == 'exp_34':
-            shots = get_n_shots(mp, script_converted_intr_train_examples, dst_train_samples, mp.no_of_shots, intr_lang, dst_lang, recommendations=[])
-            content = construct_prompt(shots, input_sample, src_lang, dst_lang, n_shots=mp.no_of_shots)      
-        elif experiment == 'exp_38':
-            shots = get_n_shots(mp, src_train_samples, script_convert_dst_train_examples_to_intr, mp.no_of_shots, src_lang, dst_lang, recommendations=[])
-            content = construct_prompt(shots, input_sample, src_lang, dst_lang, n_shots=mp.no_of_shots)
-        elif experiment == 'exp_39':
-            shots = get_n_shots(mp, src_train_samples, intr_train_examples, mp.no_of_shots, src_lang, intr_lang, recommendations=[])
-            content = construct_prompt(shots, input_sample, src_lang, dst_lang, n_shots=mp.no_of_shots)
-        elif experiment == 'exp_40':
-            shots = get_n_shots(mp, src_train_samples, script_convert_intr_train_examples_to_dst, mp.no_of_shots, src_lang, intr_lang, recommendations=[])
-            content = construct_prompt(shots, input_sample, src_lang, dst_lang, n_shots=mp.no_of_shots)
-
-        # misc experiment
-        elif experiment == 'exp_41':
-            shots = get_shot_from_input(qid, src_test_samples, dst_test_samples, mp.no_of_shots, src_lang, dst_lang)
-            content = construct_prompt(shots, input_sample, src_lang, dst_lang, n_shots=mp.no_of_shots)
-        elif experiment == 'exp_42':
-            shots = get_shots_from_cross_lingual(cross_lingual_ecommendations[qid], inc_order=False)
-            content = construct_prompt(shots, input_sample, src_lang, dst_lang, n_shots=mp.no_of_shots)
-        elif experiment == 'exp_43':
-            shots = get_shots_from_cross_lingual(cross_lingual_ecommendations[qid], inc_order=True)
-            content = construct_prompt(shots, input_sample, src_lang, dst_lang, n_shots=mp.no_of_shots)
-
-        # french, spanish experiments
-        elif experiment == 'exp_46' or experiment == 'exp_46.1' or experiment == 'exp_46.2' or experiment == 'exp_46.3':
-            shots = get_n_shots(mp, intr_train_examples, dst_train_samples, mp.no_of_shots, intr_lang, dst_lang, recommendations=[])
-            content = construct_prompt(shots, input_sample, src_lang, dst_lang, n_shots=mp.no_of_shots)
-        elif experiment == 'exp_47':
-            # https://github.com/valentinmace/noisy-text for noisy text
-            noisy_eng_examples = load_samples('dataset/noisy/eng_Latn.noisy')
-            shots = get_n_shots(mp, noisy_eng_examples, dst_train_samples, mp.no_of_shots, 'Some', dst_lang, recommendations=[])
-            content = construct_prompt(shots, input_sample, src_lang, dst_lang, n_shots=mp.no_of_shots)
-        elif experiment == 'exp_47.2':
-            noisy_hin_examples = load_samples('dataset/noisy/hin_Deva.noisy')
-            shots = get_n_shots(mp, noisy_hin_examples, dst_train_samples, mp.no_of_shots, 'Some', dst_lang, recommendations=[])
-            content = construct_prompt(shots, input_sample, src_lang, dst_lang, n_shots=mp.no_of_shots)
-            
-        elif experiment == 'exp5':
-            # exp5: Use random hin-eng examples as prompts
-            shots = get_n_shots(mp, intr_train_examples, dst_train_samples, mp.no_of_shots, intr_lang, dst_lang, recommendations=[])
-            content = construct_prompt(shots, input_sample, src_lang, dst_lang, n_shots=mp.no_of_shots)
-        elif experiment == 'exp4':
-            # exp4: using pseudo english-english sentences
-            shots = get_n_shots(mp, dst_train_samples, dst_train_samples, mp.no_of_shots, "Some", dst_lang, recommendations=recommendations)
-            content = construct_prompt(shots, input_sample, src_lang, dst_lang, n_shots=mp.no_of_shots)
-        elif experiment == 'exp3':
-            # exp3: retrive hin-eng similar examples and script convert hin side to guj script and choose 2 from each
-            shots = get_n_mixed_shots(mp, intr_train_examples, dst_train_samples, script_converted_intr_train_examples, mp.no_of_shots, intr_lang, dst_lang, src_lang, recommendations=recommendations)
-            content = construct_prompt(shots, input_sample, src_lang, dst_lang, n_shots=mp.no_of_shots)
-        elif experiment == 'exp2':
-            # exp2: retrive hin-eng similar examples and script convert hin side to guj script
-            shots = get_n_shots(mp, script_converted_intr_train_examples, dst_train_samples, mp.no_of_shots, src_lang, dst_lang, recommendations=recommendations)
-            content = construct_prompt(shots, input_sample, src_lang, dst_lang, n_shots=mp.no_of_shots)
-        elif experiment == 'exp1':
-            # exp2: retrive hin-eng similar examples and use them finally with a guj script
-            shots = get_n_shots(mp, intr_train_examples, dst_train_samples, mp.no_of_shots, intr_lang, dst_lang, recommendations=recommendations)
-            content = construct_prompt(shots, input_sample, src_lang, dst_lang, n_shots=mp.no_of_shots)
-
-        # print(content)
-        datasetObj.addprompt(content)
-        datasetObj.addinput(input_sample)
-
-    # obtained the output from model
-    pred_dst = predict_outputs(pipe, datasetObj, prediction_file, mp.name, experiment_flags=(experiment, intr_lang_code, dst_lang_code))
-
-    # print(pred_dst) 
-
-    # obtain the bleu score and comet score
-    blue_score = corpus_bleu(pred_dst, [dst_test_samples]).score
-    blue_score = round(blue_score, 2)
-    comet_score = get_comet_mean_score(predicted=pred_dst, references=dst_test_samples, source=src_test_samples)
-    print('COMET score -> {}'.format(comet_score))
-    
-
-    print('Model -> {}, Type -> {}, Number of shots -> {}, BLEU score -> {}, COMET score -> {}, Use 8 bit -> {}'.format(model_name, mp.type_of_algo, mp.no_of_shots, blue_score, comet_score, mp.use_8_bit))
-    with open(scores_file, 'a') as f:
-        f.write('{},{},{},{},{},{},{},{},{}\n'.format(model_name, mp.type_of_algo, src_lang, dst_lang, mp.no_of_shots, blue_score, mp.use_8_bit, comet_score, random_name))
-
-# %% [markdown]
-# ### Model initialization and inferencing
-
-# %%
-def clear_gpu_memory():
-    # clear cache
-    import gc
-    gc.collect()
-    torch.cuda.empty_cache()
-
-# %% [markdown]
-# # Regression Idea
+# ### CTQScorer: Generate Training Data
 
 # %%
 # This function evaluates the BLOOM model and also captures the MT outputs
@@ -1074,7 +478,7 @@ def get_prompt_scores(pipe, mp: model_parameters, experiment=''):
                 recommendations = list(map(lambda x: x["index"], recommendations))
 
         # create an object to batch the examples
-        datasetObj = MyDataset()
+        datasetObj = MTDataset()
 
         for recommendation in recommendations:
 
@@ -1145,34 +549,34 @@ mp.has_reranking=True
 mp.inc_reranking=True
 mp.no_of_shots=4
 
-experiment = 'exp_120'
+experiment = 'exp_120_test'
 
-mp.strategy = RANKINGS_CUSTOM
-mp.strategy_nested = COMET_QE_20_REGRESSION
+mp.strategy = RANKINGS_BM25
+# mp.strategy_nested = COMET_QE_20_REGRESSION
 
 mp.src_lang=BEN_BENG
 mp.dst_lang=ENG_LATN
 get_bleu_scores(pipe, mp, experiment='{}.1'.format(experiment))
 
-mp.src_lang=GUJ_GUJR
-mp.dst_lang=ENG_LATN
-get_bleu_scores(pipe, mp, experiment='{}.2'.format(experiment))
+# mp.src_lang=GUJ_GUJR
+# mp.dst_lang=ENG_LATN
+# get_bleu_scores(pipe, mp, experiment='{}.2'.format(experiment))
 
-mp.src_lang=HIN_DEVA
-mp.dst_lang=ENG_LATN
-get_bleu_scores(pipe, mp, experiment='{}.3'.format(experiment))
+# mp.src_lang=HIN_DEVA
+# mp.dst_lang=ENG_LATN
+# get_bleu_scores(pipe, mp, experiment='{}.3'.format(experiment))
 
-mp.src_lang=ENG_LATN
-mp.dst_lang=BEN_BENG
-get_bleu_scores(pipe, mp, experiment='{}.4'.format(experiment))
+# mp.src_lang=ENG_LATN
+# mp.dst_lang=BEN_BENG
+# get_bleu_scores(pipe, mp, experiment='{}.4'.format(experiment))
 
-mp.src_lang=ENG_LATN
-mp.dst_lang=GUJ_GUJR
-get_bleu_scores(pipe, mp, experiment='{}.5'.format(experiment))
+# mp.src_lang=ENG_LATN
+# mp.dst_lang=GUJ_GUJR
+# get_bleu_scores(pipe, mp, experiment='{}.5'.format(experiment))
 
-mp.src_lang=ENG_LATN
-mp.dst_lang=HIN_DEVA
-get_bleu_scores(pipe, mp, experiment='{}.6'.format(experiment))
+# mp.src_lang=ENG_LATN
+# mp.dst_lang=HIN_DEVA
+# get_bleu_scores(pipe, mp, experiment='{}.6'.format(experiment))
 
 
 

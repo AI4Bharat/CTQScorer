@@ -79,3 +79,5 @@ SRC_DST_PPL = 'src_dst_ppl'
 SRC_DST_QUERY_PPL = 'src_dst_query_ppl'
 RANKINGS_BM25_REGRESSION = 'rankings_bm25_regression'
 COMET_QE_20_REGRESSION = 'comet_qe_20_regression' 
+
+BATCH_SIZE = 8
