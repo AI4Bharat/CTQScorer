@@ -1,1 +1,1 @@
-nohup python bloom.py >> bloom.log &
+nohup python translate_and_eval.py >> translate_and_eval.log &

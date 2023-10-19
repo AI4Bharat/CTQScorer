@@ -1,39 +1,41 @@
 import argparse
 from tqdm.auto import tqdm
-from sacrebleu import sentence_bleu, corpus_bleu
+from sacrebleu import sentence_bleu
 
 # utils
 from model_parameters import model_parameters
 from utils.constants import *
-from utils.commonutils import load_samples, make_dir, get_random_name, append_config_to_file, lang_abbr_to_lang_code, lang_abbr_to_lang, init_logging
+from utils.commonutils import make_dir, get_random_name, append_config_to_file, lang_abbr_to_lang, init_logging
 
 # prompt construction
-from prompts import get_n_shots, construct_zero_shot, construct_prompt
+from prompts import get_n_shots, construct_prompt
 
 # Preprocessing prompts, batching prompts and post processing outputs
 from MTDataset import MTDataset
 from process_outputs import predict_outputs
-from preprocess_prompts import handle_repetitive_examples
 
 # scoring functions
-from scoring_functions import init_comet_computation, init_comet_qe_20_computation, init_comet_da_22_computation, init_chrf
-from scoring_functions import get_chrf_scores, get_comet_scores, get_comet_mean_score, get_comet_qe_20_scores, get_comet_da_22_scores
+from scoring_functions import init_comet_computation, init_comet_qe_20_computation, init_comet_da_22_computation
+from scoring_functions import get_comet_scores, get_comet_qe_20_scores, get_comet_da_22_scores
 
 # helper functions
-from helper_functions import read_recommendations, get_samples, clear_gpu_memory, get_model
+from helper_functions import read_recommendations, get_samples, get_model
 
 
-chrf = init_chrf()
 comet_da_20_metric = init_comet_computation()
 comet_qe_20_metric = init_comet_qe_20_computation()
 comet_da_22_metric = init_comet_da_22_computation()
 
-
-# This function evaluates the BLOOM model and also captures the MT outputs
-def get_prompt_scores(pipe, mp: model_parameters, experiment=''):
+"""
+This function generates CTQ scores for (997 x 100 = 99700 tuples) which will be used as training data for the CTQScorer.
+We have used FLORES-devset as Held-out Example Pairs and Samanantar/Europarl/Paracrawl as Example Datastore.
+The CTQ scores are stored in 'outputs' directory where each file name is: regression_scores_{src_lang}_{dst_lang}.csv
+For our experiments we consider, comet-da-20 score as CTQ scores. Outputs are also captured in the same directory.
+"""
+def get_ctq_scores(pipe, mp: model_parameters, experiment=''):
     model_name = mp.name.split('/')[1]
     
-    # languages for which the model should be evaluated
+    # languages for which the model should be generate CTQ scores
     src_lang = lang_abbr_to_lang.get(mp.src_lang)
     dst_lang = lang_abbr_to_lang.get(mp.dst_lang)
 
@@ -96,7 +98,7 @@ def get_prompt_scores(pipe, mp: model_parameters, experiment=''):
             datasetObj.addprompt(content)
             datasetObj.addinput(input_sample)
     
-        # write prompts to file
+        # write prompts to file for reference
         with open('{}/{}_{}_{}.txt'.format(prompts_dir, experiment, mp.src_lang, mp.dst_lang), 'a') as f:
             f.write(prompts)
 
@@ -134,17 +136,17 @@ def get_prompt_scores(pipe, mp: model_parameters, experiment=''):
                 
 
 def main():
-    init_logging('compute_regression_scores.log')
+    init_logging('generate_ctqscorer_train_data.log')
     
     parser = argparse.ArgumentParser()
     parser.add_argument("--train", help="training source to be used")
     parser.add_argument("--test", help="testing source to be used")
     parser.add_argument("--src", help="source language")
     parser.add_argument("--dst", help="destination language")
-    parser.add_argument("--outputs", help="location of outputs file")
+    parser.add_argument("--xglm", help="Is the model used xglm?", action="store_true")
     args = parser.parse_args()
 
-    name = BLOOM_7B
+    name = XGLM_7B if args.xglm else BLOOM_7B
     mp = model_parameters(name=name)
 
     mp.training_source = args.train
@@ -154,9 +156,9 @@ def main():
     mp.strategy = RANKINGS_BM25_REGRESSION
     mp.has_reranking = True
 
-    # generate pipe and use the same pipe instead of creating one each time
+    # generate pipe and use the same pipe
     pipe = get_model(mp.name, type_of_algo=mp.type_of_algo, use_8_bit=mp.use_8_bit)
-    get_prompt_scores(pipe, mp, experiment='')
+    get_ctq_scores(pipe, mp, experiment='')
 
 if __name__ == '__main__':
     main()
