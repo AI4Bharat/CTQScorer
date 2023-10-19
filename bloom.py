@@ -1125,7 +1125,7 @@ def get_prompt_scores(pipe, mp: model_parameters, experiment=''):
 
 # %%
 # name = "facebook/opt-6.7b", BLOOM_3B, BLOOM_7B, XGLM_7B
-name = XGLM_7B
+name = BLOOM_7B
 
 # parameters for the model
 mp = model_parameters(name=name)
@@ -1139,84 +1139,86 @@ if name == XGLM_7B:
 pipe = get_model(mp.name, type_of_algo=mp.type_of_algo, use_8_bit=mp.use_8_bit)
 
 # %%
-# mp.training_source=SAMANANTAR
-# mp.testing_source=FLORES
-# mp.has_reranking=True
-# mp.inc_reranking=True
-# mp.no_of_shots=4
+mp.training_source=SAMANANTAR
+mp.testing_source=FLORES
+mp.has_reranking=True
+mp.inc_reranking=True
+mp.no_of_shots=4
 
 experiment = 'exp_120'
 
 mp.strategy = RANKINGS_CUSTOM
 mp.strategy_nested = COMET_QE_20_REGRESSION
 
-# mp.src_lang=BEN_BENG
-# mp.dst_lang=ENG_LATN
-# get_bleu_scores(pipe, mp, experiment='{}.1'.format(experiment))
+mp.src_lang=BEN_BENG
+mp.dst_lang=ENG_LATN
+get_bleu_scores(pipe, mp, experiment='{}.1'.format(experiment))
 
-# mp.src_lang=GUJ_GUJR
-# mp.dst_lang=ENG_LATN
-# get_bleu_scores(pipe, mp, experiment='{}.2'.format(experiment))
+mp.src_lang=GUJ_GUJR
+mp.dst_lang=ENG_LATN
+get_bleu_scores(pipe, mp, experiment='{}.2'.format(experiment))
 
-# mp.src_lang=HIN_DEVA
-# mp.dst_lang=ENG_LATN
-# get_bleu_scores(pipe, mp, experiment='{}.3'.format(experiment))
+mp.src_lang=HIN_DEVA
+mp.dst_lang=ENG_LATN
+get_bleu_scores(pipe, mp, experiment='{}.3'.format(experiment))
 
-# mp.src_lang=ENG_LATN
-# mp.dst_lang=BEN_BENG
-# get_bleu_scores(pipe, mp, experiment='{}.4'.format(experiment))
+mp.src_lang=ENG_LATN
+mp.dst_lang=BEN_BENG
+get_bleu_scores(pipe, mp, experiment='{}.4'.format(experiment))
 
-# mp.src_lang=ENG_LATN
-# mp.dst_lang=GUJ_GUJR
-# get_bleu_scores(pipe, mp, experiment='{}.5'.format(experiment))
+mp.src_lang=ENG_LATN
+mp.dst_lang=GUJ_GUJR
+get_bleu_scores(pipe, mp, experiment='{}.5'.format(experiment))
 
-# mp.src_lang=ENG_LATN
-# mp.dst_lang=HIN_DEVA
-# get_bleu_scores(pipe, mp, experiment='{}.6'.format(experiment))
+mp.src_lang=ENG_LATN
+mp.dst_lang=HIN_DEVA
+get_bleu_scores(pipe, mp, experiment='{}.6'.format(experiment))
 
 
 
 # %%
-# get bleu score
-mp.training_source=EUROPARL
-mp.testing_source=FLORES
-mp.has_reranking=True
-mp.inc_reranking=True
-mp.no_of_shots=4
+# # get bleu score
+# mp.training_source=EUROPARL
+# mp.testing_source=FLORES
+# mp.has_reranking=True
+# mp.inc_reranking=True
+# mp.no_of_shots=4
 
+# mp.strategy = RANKINGS_NO_OF_TOKENS
+# mp.strategy_nested = NO_OF_TOKENS_IN_SRC_SENT
 
-mp.src_lang=FRA_LATN
-mp.dst_lang=ENG_LATN
-get_bleu_scores(pipe, mp, experiment='{}.7'.format(experiment))
+# mp.src_lang=FRA_LATN
+# mp.dst_lang=ENG_LATN
+# get_bleu_scores(pipe, mp, experiment='{}.7'.format(experiment))
 
-mp.src_lang=DEU_LATN
-mp.dst_lang=ENG_LATN
-get_bleu_scores(pipe, mp, experiment='{}.8'.format(experiment))
+# mp.src_lang=DEU_LATN
+# mp.dst_lang=ENG_LATN
+# get_bleu_scores(pipe, mp, experiment='{}.8'.format(experiment))
 
-mp.src_lang=ENG_LATN
-mp.dst_lang=FRA_LATN
-get_bleu_scores(pipe, mp, experiment='{}.9'.format(experiment))
+# mp.src_lang=ENG_LATN
+# mp.dst_lang=FRA_LATN
+# get_bleu_scores(pipe, mp, experiment='{}.9'.format(experiment))
 
-mp.src_lang=ENG_LATN
-mp.dst_lang=DEU_LATN
-get_bleu_scores(pipe, mp, experiment='{}.10'.format(experiment))
+# mp.src_lang=ENG_LATN
+# mp.dst_lang=DEU_LATN
+# get_bleu_scores(pipe, mp, experiment='{}.10'.format(experiment))
 
 
 # %%
-# get bleu score
-mp.training_source=PARACRAWL
-mp.testing_source=FLORES
-mp.has_reranking=True
-mp.inc_reranking=True
-mp.no_of_shots=4
+# # get bleu score
+# mp.training_source=PARACRAWL
+# mp.testing_source=FLORES
+# mp.has_reranking=True
+# mp.inc_reranking=True
+# mp.no_of_shots=4
 
-mp.src_lang=RUS_CYRL
-mp.dst_lang=ENG_LATN
-get_bleu_scores(pipe, mp, experiment='{}.11'.format(experiment))
+# mp.src_lang=RUS_CYRL
+# mp.dst_lang=ENG_LATN
+# get_bleu_scores(pipe, mp, experiment='{}.11'.format(experiment))
 
-mp.src_lang=ENG_LATN
-mp.dst_lang=RUS_CYRL
-get_bleu_scores(pipe, mp, experiment='{}.12'.format(experiment))
+# mp.src_lang=ENG_LATN
+# mp.dst_lang=RUS_CYRL
+# get_bleu_scores(pipe, mp, experiment='{}.12'.format(experiment))
 
 
 
