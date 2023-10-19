@@ -31,9 +31,21 @@ from utils.commonutils import load_samples, make_dir, get_random_name, append_co
 from utils.utils_data import get_train_test_data
 from utils.constants import *
 from model_parameters import model_parameters
+
+# prompt construction
 from prompts import get_n_shots, construct_zero_shot, construct_prompt
+
+# Preprocessing prompts, batching prompts and post processing outputs
+from MTDataset import MTDataset
+from process_outputs import predict_outputs
+from preprocess_prompts import handle_repetitive_examples
+
+# scoring functions
 from scoring_functions import init_comet_computation, init_comet_qe_20_computation, init_comet_da_22_computation, init_chrf
 from scoring_functions import get_chrf_scores, get_comet_scores, get_comet_mean_score, get_comet_qe_20_scores, get_comet_da_22_scores
+
+# helper functions
+from helper_functions import read_recommendations, get_samples, clear_gpu_memory, get_model
 
 # %% [markdown]
 # ### Constants
@@ -61,44 +73,6 @@ SAMANANTAR = 'samanantar'
 FLORES = 'flores'
 
 # %% [markdown]
-# ### Helper functions
-
-# %%
-# reads the recommendations obtained from BM25 and reranking algorithm
-def read_recommendations(strategy, training_source, testing_source, src_lang, dst_lang, strategy_nested=''):
-    json_data = {}
-
-    if strategy_nested == '':
-        recommendations = 'recommendations_{}_{}_{}_{}.json'.format(training_source, testing_source, src_lang, dst_lang)
-        ranking_file_name = '{}/{}'.format(strategy, recommendations)
-        with open(ranking_file_name, 'r') as f:
-            json_data = json.load(f)
-    else:
-        recommendations = 'recommendations_{}_{}_{}_{}.json'.format(training_source, testing_source, src_lang, dst_lang)
-        ranking_file_name = '{}/{}/{}'.format(strategy, strategy_nested, recommendations)
-        with open(ranking_file_name, 'r') as f:
-            json_data = json.load(f)
-    
-    return json_data
-
-# %%
-def get_samples(training_source, testing_source, src_lang, dst_lang, is_ranking_for_devset=False):
-    train_src_path, train_dst_path, test_src_path, test_dst_path = get_train_test_data(training_source, testing_source, src_lang, dst_lang, is_ranking_for_devset)
-    src_train_samples = load_samples(train_src_path)
-    dst_train_samples = load_samples(train_dst_path)
-    src_test_samples = load_samples(test_src_path)
-    dst_test_samples = load_samples(test_dst_path)
-    
-    return src_train_samples, dst_train_samples, src_test_samples, dst_test_samples
-
-# %%
-def clear_gpu_memory():
-    # clear cache
-    import gc
-    gc.collect()
-    torch.cuda.empty_cache()
-
-# %% [markdown]
 # ### Initiating Scoring functions
 
 # %%
@@ -106,42 +80,6 @@ chrf = init_chrf()
 comet_da_20_metric = init_comet_computation()
 comet_qe_20_metric = init_comet_qe_20_computation()
 comet_da_22_metric = init_comet_da_22_computation()
-
-# %% [markdown]
-# ### Load Model
-
-# %%
-# This function returns the model based on the arguments we pass.
-def get_model(model_name, type_of_algo='Greedy', use_8_bit=False):
-
-    model_kwargs = {"device_map": "auto"}
-    if use_8_bit:
-        model_kwargs= {"device_map": "auto", "load_in_8bit": True}
-
-    pipe = None
-    if model_name == XGLM_7B:
-        model = AutoModelForCausalLM.from_pretrained(XGLM_7B, **model_kwargs)
-        tokenizer = AutoTokenizer.from_pretrained(XGLM_7B, use_fast=False)
-        tokenizer.padding_side = "left"
-        pipe = pipeline('text-generation', model=model, tokenizer=tokenizer,
-                        return_full_text=False, early_stopping=True)
-    else:
-        if type_of_algo == 'Greedy' or type_of_algo == '':
-            pipe = pipeline(model=model_name, model_kwargs=model_kwargs, 
-            return_full_text=False, early_stopping=True)
-        elif type_of_algo == 'Beam':
-            pipe = pipeline(model=model_name, model_kwargs=model_kwargs,
-            num_beams=3, return_full_text=False, early_stopping=True)
-        
-    return pipe
-
-# %% [markdown]
-# ### Preprocessing prompts, batching prompts and post processing outputs
-
-# %%
-from MTDataset import MTDataset
-from process_outputs import predict_outputs
-from preprocess_prompts import handle_repetitive_examples
 
 # %% [markdown]
 # ### Function to generate MT and evaluating translation
@@ -291,109 +229,6 @@ def get_bleu_scores(pipe, mp: model_parameters, experiment=''):
 
     with open(scores_file, 'a') as f:
         f.write('{},{},{},{},{},{},{},{},{},{},{},{},{}\n'.format(model_name, mp.type_of_algo, src_lang, dst_lang, mp.no_of_shots, blue_score, comet_score, chrf_score, chrfpp_score, comet_qe_20_score, comet_da_22_score, mp.use_8_bit, random_name))
-
-# %% [markdown]
-# ### CTQScorer: Generate Training Data
-
-# %%
-# This function evaluates the BLOOM model and also captures the MT outputs
-def get_prompt_scores(pipe, mp: model_parameters, experiment=''):
-    model_name = mp.name.split('/')[1]
-    
-    # languages for which the model should be evaluated
-    src_lang = lang_abbr_to_lang.get(mp.src_lang)
-    dst_lang = lang_abbr_to_lang.get(mp.dst_lang)
-
-    # create output directory
-    output_dir, prompts_dir = 'outputs', 'prompts'
-    make_dir(output_dir)
-    make_dir(prompts_dir)
-
-    # make note of configuration
-    # '{}, {}, {}, {}, {}, {}, {}, {}, {}\n'.format(name, type_of_algo, max_new_tokens, use_8_bit, toEnglish, num_of_shots, reranking, dataset, rec_source)
-    scores_file = '{}/scores.csv'.format(output_dir)
-    msg = '{} [{}]\n'.format(str(mp).strip(), experiment)
-    append_config_to_file(scores_file, msg=msg)
-    print(mp)
-
-    # load samples from samanantar corpus
-    src_train_samples, dst_train_samples, src_flores_dev_samples, dst_flores_dev_samples = get_samples(mp.training_source, mp.testing_source,
-                                                                                        mp.src_lang, mp.dst_lang, is_ranking_for_devset=True)
-
-    # get ranking of dev samples if reranking flag is true
-    if mp.has_reranking:
-        rankings = read_recommendations(mp.strategy, mp.training_source, mp.testing_source, mp.src_lang, mp.dst_lang)
-        if len(rankings) == 0:
-            print('No ranking found for: {}'.format(src_lang))
-
-    # capture configuration and generate random name for file to map the configuration
-    random_name = get_random_name()
-    prediction_file = '{}/{}_{}_{}_{}_{}_shots_pred_{}.txt'.format(output_dir, experiment, model_name, src_lang, dst_lang, mp.no_of_shots, random_name)
-
-    # write prompts to file
-    with open('{}/{}_{}_{}.txt'.format(prompts_dir, experiment, mp.src_lang, mp.dst_lang), 'w') as f:
-        f.write('')
-
-    for qid, input_sample in enumerate(tqdm(src_flores_dev_samples)):
-
-        # all prompts
-        prompts = ''
-            
-        recommendations = []
-        if mp.has_reranking:
-            recommendations = rankings[str(qid)]
-
-            # recommendation structure has been changed
-            if mp.strategy == RANKINGS_BM25_REGRESSION:
-                # recommendations are in [{ "index": 630729, "score": 37.21}, ... ]
-                recommendations = list(map(lambda x: x["index"], recommendations))
-
-        # create an object to batch the examples
-        datasetObj = MTDataset()
-
-        for recommendation in recommendations:
-
-            # prompt construction
-            shots = get_n_shots(mp, src_train_samples, dst_train_samples, mp.no_of_shots, src_lang, dst_lang, recommendations=[recommendation])
-            content = construct_prompt(shots, input_sample, src_lang, dst_lang, n_shots=1)
-            
-            prompts = prompts + '{}\n{}\n\n\n'.format(qid, content)
-
-            # print(content)
-            # print('\n\n\n')
-            datasetObj.addprompt(content)
-            datasetObj.addinput(input_sample)
-    
-        # write prompts to file
-        with open('{}/{}_{}_{}.txt'.format(prompts_dir, experiment, mp.src_lang, mp.dst_lang), 'a') as f:
-            f.write(prompts)
-
-        # obtained the output from model
-        pred_dst = predict_outputs(pipe, datasetObj, prediction_file, mp.name) 
-        # print(pred_dst)
-
-        # obtain comet score
-        refs = [dst_flores_dev_samples[qid]] * len(pred_dst)
-        srcs = [src_flores_dev_samples[qid]] * len(pred_dst)
-        # print(refs)
-        # print(srcs)
-        comet_scores = get_comet_scores(predicted=pred_dst, references=refs, source=srcs, comet_da_20_metric=comet_da_20_metric)
-        comet_scores = list(map(lambda x: round(x, 4), comet_scores))
-        # print('COMET score -> {}'.format(comet_scores))
-
-        bleu_scores = []
-        ref = dst_flores_dev_samples[qid]
-        for candidate in pred_dst:
-            bleu_scores.append(sentence_bleu(candidate, [ref]).score)
-        bleu_scores = list(map(lambda x: round(x, 2), bleu_scores))
-        # print('BLEU scores -> {}'.format(bleu_scores))
-
-        # write scores to regression file
-        regression_scores_file = '{}/regression_scores_{}_{}.csv'.format(output_dir, mp.src_lang, mp.dst_lang)
-        for elem_id_in_corpus, comet_score, bleu_score in zip(recommendations, comet_scores, bleu_scores):
-            with open(regression_scores_file, 'a') as f:
-                f.write('{},{},{},{}\n'.format(qid, elem_id_in_corpus, comet_score, bleu_score))
-                
 
 # %% [markdown]
 # ### Evaluation

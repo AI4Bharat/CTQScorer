@@ -1,207 +1,77 @@
 import argparse
-from model_parameters import model_parameters
-from utils_language import *
-from utils import *
 from tqdm.auto import tqdm
-# from bloom import get_samples, read_recommendations
-# from bloom import get_comet_scores, get_comet_qe_20_scores, get_comet_da_22_scores
-from constants import *
 from sacrebleu import sentence_bleu, corpus_bleu
 
-def read_recommendations(strategy, training_source, testing_source, src_lang, dst_lang, strategy_nested=''):
-    json_data = {}
+# utils
+from model_parameters import model_parameters
+from utils.constants import *
+from utils.commonutils import load_samples, make_dir, get_random_name, append_config_to_file, lang_abbr_to_lang_code, lang_abbr_to_lang, init_logging
 
-    if strategy_nested == '':
-        recommendations = 'recommendations_{}_{}_{}_{}.json'.format(training_source, testing_source, src_lang, dst_lang)
-        ranking_file_name = '{}/{}'.format(strategy, recommendations)
-        with open(ranking_file_name, 'r') as f:
-            json_data = json.load(f)
-    else:
-        recommendations = 'recommendations_{}_{}_{}_{}.json'.format(training_source, testing_source, src_lang, dst_lang)
-        ranking_file_name = '{}/{}/{}'.format(strategy, strategy_nested, recommendations)
-        with open(ranking_file_name, 'r') as f:
-            json_data = json.load(f)
-    
-    return json_data
+# prompt construction
+from prompts import get_n_shots, construct_zero_shot, construct_prompt
 
-from utils_data import get_train_test_data
-def get_samples(training_source, testing_source, src_lang, dst_lang, is_ranking_for_devset=False, intr_lang=''):
-    train_src_path, train_dst_path, test_src_path, test_dst_path = get_train_test_data(training_source, testing_source, src_lang, dst_lang, is_ranking_for_devset)
-    src_train_samples = load_samples(train_src_path)
-    dst_train_samples = load_samples(train_dst_path)
-    src_test_samples = load_samples(test_src_path)
-    dst_test_samples = load_samples(test_dst_path)
+# Preprocessing prompts, batching prompts and post processing outputs
+from MTDataset import MTDataset
+from process_outputs import predict_outputs
+from preprocess_prompts import handle_repetitive_examples
 
-    # consider intermediate language in case
-    if intr_lang != '':
-        if training_source == 'flores':
-            intr_train_path = 'dataset/train/{}.dev'.format(intr_lang)
-        elif training_source == 'samanantar':
-            intr_lang = lang_abbr_to_lang_code.get(intr_lang)
-            intr_train_path = 'dataset/samanantar/en-{}/train.{}'.format(intr_lang, intr_lang)
-        intr_lang_samples = load_samples(intr_train_path)
-        return src_train_samples, dst_train_samples, src_test_samples, dst_test_samples, intr_lang_samples
+# scoring functions
+from scoring_functions import init_comet_computation, init_comet_qe_20_computation, init_comet_da_22_computation, init_chrf
+from scoring_functions import get_chrf_scores, get_comet_scores, get_comet_mean_score, get_comet_qe_20_scores, get_comet_da_22_scores
 
-    return src_train_samples, dst_train_samples, src_test_samples, dst_test_samples
+# helper functions
+from helper_functions import read_recommendations, get_samples, clear_gpu_memory, get_model
 
 
-from comet import download_model, load_from_checkpoint
-def init_comet_computation():
-    import os
-    os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":16:8"
-    # comet_metric = load('comet' , 'Unbabel/wmt20-comet-da')
-    
-    model_path = download_model("Unbabel/wmt20-comet-da")
-    comet_metric = load_from_checkpoint(model_path)
-    return comet_metric
-
-def init_comet_qe_20_computation():
-    import os
-    os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":16:8"
-    # comet_metric = load('comet' , 'Unbabel/wmt20-comet-da')
-    
-    model_path = download_model("Unbabel/wmt20-comet-qe-da")
-    comet_metric = load_from_checkpoint(model_path)
-    return comet_metric
-
-def init_comet_da_22_computation():
-    import os
-    os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":16:8"
-    # comet_metric = load('comet' , 'Unbabel/wmt20-comet-da')
-    
-    model_path = download_model("Unbabel/wmt22-comet-da")
-    comet_metric = load_from_checkpoint(model_path)
-    return comet_metric
-
+chrf = init_chrf()
 comet_da_20_metric = init_comet_computation()
-def get_comet_scores(predicted, references, source):
-    comet_metric = comet_da_20_metric
-    # comet_metric = load('comet')
-    scores = []
-
-    # sometimes we just run for 5 to 10 samples
-    k = len(predicted)
-    references = references[:k]
-    source = source[:k]
-
-    idx = 0
-    while idx < len(predicted):
-        batch = int(min(1024, len(predicted) - idx))
-        predicted_batch = predicted[idx: idx + batch]
-        references_batch = references[idx: idx + batch]
-        source_batch = source[idx: idx + batch]
-
-        data = []
-        for src, mt, ref in zip(source_batch, predicted_batch, references_batch):
-            data.append({
-                "src": src,
-                "mt": mt,
-                "ref": ref
-            })
-        
-        comet_score = comet_metric.predict(data, progress_bar=True)        
-        # comet_score = comet_metric.compute(predictions=predicted_batch, references=references_batch, sources=source_batch, progress_bar=True)
-        scores.extend(comet_score['scores'])
-        idx += batch
-    
-    return scores
-
 comet_qe_20_metric = init_comet_qe_20_computation()
-def get_comet_qe_20_scores(predicted, source):
-    comet_metric = comet_qe_20_metric
-    scores = []
-
-    # sometimes we just run for 5 to 10 samples
-    k = len(predicted)
-    source = source[:k]
-
-    idx = 0
-    while idx < len(predicted):
-        batch = int(min(1024, len(predicted) - idx))
-        predicted_batch = predicted[idx: idx + batch]
-        source_batch = source[idx: idx + batch]
-
-        data = []
-        for src, mt in zip(source_batch, predicted_batch):
-            data.append({
-                "src": src,
-                "mt": mt,
-            })
-        
-        comet_score = comet_metric.predict(data, progress_bar=True)        
-        scores.extend(comet_score['scores'])
-        idx += batch
-    
-    return scores
-
 comet_da_22_metric = init_comet_da_22_computation()
-def get_comet_da_22_scores(predicted, references, source):
-    comet_metric = comet_da_22_metric
-    scores = []
-
-    # sometimes we just run for 5 to 10 samples
-    k = len(predicted)
-    references = references[:k]
-    source = source[:k]
-
-    idx = 0
-    while idx < len(predicted):
-        batch = int(min(1024, len(predicted) - idx))
-        predicted_batch = predicted[idx: idx + batch]
-        references_batch = references[idx: idx + batch]
-        source_batch = source[idx: idx + batch]
-
-        data = []
-        for src, mt, ref in zip(source_batch, predicted_batch, references_batch):
-            data.append({
-                "src": src,
-                "mt": mt,
-                "ref": ref
-            })
-        
-        comet_score = comet_metric.predict(data, progress_bar=True)        
-        # comet_score = comet_metric.compute(predictions=predicted_batch, references=references_batch, sources=source_batch, progress_bar=True)
-        scores.extend(comet_score['scores'])
-        idx += batch
-    
-    return scores
-
 
 
 # This function evaluates the BLOOM model and also captures the MT outputs
-def get_missing_comet_scores(mp: model_parameters, output_file):    
+def get_prompt_scores(pipe, mp: model_parameters, experiment=''):
+    model_name = mp.name.split('/')[1]
+    
     # languages for which the model should be evaluated
     src_lang = lang_abbr_to_lang.get(mp.src_lang)
     dst_lang = lang_abbr_to_lang.get(mp.dst_lang)
 
-    output_dir = 'outputs'
+    # create output directory
+    output_dir, prompts_dir = 'outputs', 'prompts'
+    make_dir(output_dir)
+    make_dir(prompts_dir)
+
+    # make note of configuration
+    # '{}, {}, {}, {}, {}, {}, {}, {}, {}\n'.format(name, type_of_algo, max_new_tokens, use_8_bit, toEnglish, num_of_shots, reranking, dataset, rec_source)
+    scores_file = '{}/scores.csv'.format(output_dir)
+    msg = '{} [{}]\n'.format(str(mp).strip(), experiment)
+    append_config_to_file(scores_file, msg=msg)
+    print(mp)
 
     # load samples from samanantar corpus
     src_train_samples, dst_train_samples, src_flores_dev_samples, dst_flores_dev_samples = get_samples(mp.training_source, mp.testing_source,
                                                                                         mp.src_lang, mp.dst_lang, is_ranking_for_devset=True)
-    
+
     # get ranking of dev samples if reranking flag is true
     if mp.has_reranking:
         rankings = read_recommendations(mp.strategy, mp.training_source, mp.testing_source, mp.src_lang, mp.dst_lang)
         if len(rankings) == 0:
             print('No ranking found for: {}'.format(src_lang))
 
+    # capture configuration and generate random name for file to map the configuration
+    random_name = get_random_name()
+    prediction_file = '{}/{}_{}_{}_{}_{}_shots_pred_{}.txt'.format(output_dir, experiment, model_name, src_lang, dst_lang, mp.no_of_shots, random_name)
 
-    outputs = ''
-    with open(output_file, 'r') as f:
-        outputs = f.read()
-
-    outputs = outputs.splitlines()
-    current_index = 0
-    batch = 100
-
-    # write scores to regression file
-    regression_scores_file = '{}/regression_scores_{}_{}.csv'.format(output_dir, mp.src_lang, mp.dst_lang)
-    with open(regression_scores_file, 'w') as f:
+    # write prompts to file
+    with open('{}/{}_{}_{}.txt'.format(prompts_dir, experiment, mp.src_lang, mp.dst_lang), 'w') as f:
         f.write('')
-        
+
     for qid, input_sample in enumerate(tqdm(src_flores_dev_samples)):
 
+        # all prompts
+        prompts = ''
+            
         recommendations = []
         if mp.has_reranking:
             recommendations = rankings[str(qid)]
@@ -211,17 +81,35 @@ def get_missing_comet_scores(mp: model_parameters, output_file):
                 # recommendations are in [{ "index": 630729, "score": 37.21}, ... ]
                 recommendations = list(map(lambda x: x["index"], recommendations))
 
+        # create an object to batch the examples
+        datasetObj = MTDataset()
+
+        for recommendation in recommendations:
+
+            # prompt construction
+            shots = get_n_shots(mp, src_train_samples, dst_train_samples, mp.no_of_shots, src_lang, dst_lang, recommendations=[recommendation])
+            content = construct_prompt(shots, input_sample, src_lang, dst_lang, n_shots=1)
+            prompts = prompts + '{}\n{}\n\n\n'.format(qid, content)
+
+            # print(content)
+            # print('\n\n\n')
+            datasetObj.addprompt(content)
+            datasetObj.addinput(input_sample)
+    
+        # write prompts to file
+        with open('{}/{}_{}_{}.txt'.format(prompts_dir, experiment, mp.src_lang, mp.dst_lang), 'a') as f:
+            f.write(prompts)
 
         # obtained the output from model
-        pred_dst = outputs[current_index: current_index + batch]
-        current_index = current_index + batch
+        pred_dst = predict_outputs(pipe, datasetObj, prediction_file, mp.name) 
         # print(pred_dst)
 
         # obtain comet score
         refs = [dst_flores_dev_samples[qid]] * len(pred_dst)
         srcs = [src_flores_dev_samples[qid]] * len(pred_dst)
-
-        comet_scores = get_comet_scores(predicted=pred_dst, references=refs, source=srcs)
+        # print(refs)
+        # print(srcs)
+        comet_scores = get_comet_scores(predicted=pred_dst, references=refs, source=srcs, comet_da_20_metric=comet_da_20_metric)
         comet_scores = list(map(lambda x: round(x, 4), comet_scores))
         # print('COMET score -> {}'.format(comet_scores))
 
@@ -230,19 +118,20 @@ def get_missing_comet_scores(mp: model_parameters, output_file):
         for candidate in pred_dst:
             bleu_scores.append(sentence_bleu(candidate, [ref]).score)
         bleu_scores = list(map(lambda x: round(x, 2), bleu_scores))
-
-
+        # print('BLEU scores -> {}'.format(bleu_scores))
+        
         comet_qe_20_scores = get_comet_qe_20_scores(predicted=pred_dst, source=srcs)
         comet_qe_20_scores = list(map(lambda x: round(x, 4), comet_qe_20_scores))
 
         comet_da_22_scores = get_comet_da_22_scores(predicted=pred_dst, references=refs, source=srcs)
         comet_da_22_scores = list(map(lambda x: round(x, 4), comet_da_22_scores))
 
-        # print('BLEU scores -> {}'.format(bleu_scores))
+        # write scores to regression scores file
+        regression_scores_file = '{}/regression_scores_{}_{}.csv'.format(output_dir, mp.src_lang, mp.dst_lang)
         for elem_id_in_corpus, comet_score, bleu_score, comet_qe_20_score, comet_da_22_score in zip(recommendations, comet_scores, bleu_scores, comet_qe_20_scores, comet_da_22_scores):
             with open(regression_scores_file, 'a') as f:
                 f.write('{},{},{},{},{},{}\n'.format(qid, elem_id_in_corpus, comet_score, bleu_score, comet_qe_20_score, comet_da_22_score))
-
+                
 
 def main():
     init_logging('compute_regression_scores.log')
@@ -265,7 +154,9 @@ def main():
     mp.strategy = RANKINGS_BM25_REGRESSION
     mp.has_reranking = True
 
-    get_missing_comet_scores(mp, args.outputs)
+    # generate pipe and use the same pipe instead of creating one each time
+    pipe = get_model(mp.name, type_of_algo=mp.type_of_algo, use_8_bit=mp.use_8_bit)
+    get_prompt_scores(pipe, mp, experiment='')
 
 if __name__ == '__main__':
     main()
