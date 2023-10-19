@@ -73,16 +73,16 @@ def cummulate_feature_scores(training_source, testing_source, src_lang, dst_lang
                 NO_OF_TOKENS_IN_SRC_SENT : ranking['no_of_tokens_in_src_sent'],
                 NO_OF_TOKENS_IN_DST_SENT : ranking['no_of_tokens_in_dst_sent']
             })
-    
+
         # get LaBSE similarity score
         json_data = get_json_data(get_recommendation_file_name(RANKINGS_BM25_AND_3_WAY, training_source, testing_source, src_lang, dst_lang, is_ranking_for_devset))
         rankings = json_data[str(qid)]
         for ranking in rankings:
             index = ranking['index']
             result[qid][index].update({
-                LABSE_SCORE_QUERY_SRC : ranking['score_query_src'],
-                LABSE_SCORE_QUERY_DST : ranking['score_query_dst'],
-                LABSE_SCORE_SRC_DST : ranking['score_src_dst']
+                LABSE_SCORE_QUERY_SRC : ranking['labse_score_query_src'],
+                LABSE_SCORE_QUERY_DST : ranking['labse_score_query_dst'],
+                LABSE_SCORE_SRC_DST : ranking['labse_score_src_dst']
             })
 
         # get CHRF score

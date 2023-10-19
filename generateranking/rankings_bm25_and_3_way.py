@@ -7,7 +7,7 @@ import torch
 from sentence_transformers import SentenceTransformer, util
 
 
-def get_3way_ranking(train_src_path, train_dst_path, test_src_path, test_dst_path, src_lang, dst_lang, bm25_file_name, is_ranking_for_devset=False, flag=ALL):
+def get_3way_ranking(train_src_path, train_dst_path, test_src_path, test_dst_path, src_lang, dst_lang, bm25_file_name, is_ranking_for_devset=False):
     queries = load_samples(test_src_path)
     logging.info('loading corpus...')
     training_src_samples = load_samples(train_src_path)
@@ -54,30 +54,13 @@ def get_3way_ranking(train_src_path, train_dst_path, test_src_path, test_dst_pat
 
         # arrange indexes based on the LaBSE score
         ranking = []
-        if flag == ALL:
-            for (index, score_query_src, score_query_dst, score_src_dst) in zip(bm25_rankings, scores_query_src, scores_query_dst, scores_src_dst):
-                ranking.append({"index": index, 
-                                "score_query_src": round(float(score_query_src), 2), 
-                                "score_query_dst": round(float(score_query_dst), 2),
-                                "score_src_dst": round(float(score_src_dst), 2),
-                                "score": round(float(score_query_src) + float(score_query_dst) + float(score_src_dst), 2)
-                                })
-            
-        elif flag == QUERY_SRC:
-            for (index, score_query_src) in zip(bm25_rankings, scores_query_src):
-                ranking.append({"index": index, 
-                                "score": round(float(score_query_src), 2), 
-                                })
-        elif flag == QUERY_DST:
-            for (index, score_query_dst) in zip(bm25_rankings, scores_query_dst):
-                ranking.append({"index": index, 
-                                "score": round(float(score_query_dst), 2), 
-                                })
-        elif flag == SRC_DST:
-            for (index, score_src_dst) in zip(bm25_rankings, scores_src_dst):
-                ranking.append({"index": index, 
-                                "score": round(float(score_src_dst), 2),
-                                })
+        for (index, score_query_src, score_query_dst, score_src_dst) in zip(bm25_rankings, scores_query_src, scores_query_dst, scores_src_dst):
+            ranking.append({"index": index, 
+                            "labse_score_query_src": round(float(score_query_src), 2), 
+                            "labse_score_query_dst": round(float(score_query_dst), 2),
+                            "labse_score_src_dst": round(float(score_src_dst), 2),
+                            "score": round(float(score_query_src) + float(score_query_dst) + float(score_src_dst), 2)
+                            })
             
         if not is_ranking_for_devset:
             ranking.sort(key=lambda x: x['score'], reverse=True)

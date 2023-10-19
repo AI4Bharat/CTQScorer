@@ -1,5 +1,5 @@
 from utils import get_train_test_data, write_json_to_file, make_dir, init_logging
-from generateranking import get_bm25_ranking, get_reranking_ranking, get_comet_qa_ranking, get_labse_ranking, get_chrf_ranking, get_3way_ranking, get_ppl_ranking, get_no_of_tokens
+from generateranking import get_bm25_ranking, get_reranking_ranking, get_comet_qa_ranking, get_chrf_ranking, get_3way_ranking, get_ppl_ranking, get_no_of_tokens
 from utils.constants import *
 
 import os
@@ -29,18 +29,10 @@ def generate_ranking(training_source, testing_source, src_lang, dst_lang, strate
             result = get_reranking_ranking(train_src_path, train_dst_path, test_src_path, test_dst_path, src_lang, dst_lang, bm25_file_name, is_ranking_for_devset)
         elif strategy == RANKINGS_COMET_QA:
             result = get_comet_qa_ranking(train_src_path, train_dst_path, test_src_path, test_dst_path, src_lang, dst_lang, bm25_file_name, is_ranking_for_devset)
-        elif strategy == RANKINGS_BM25_AND_LABSE:
-            result = get_labse_ranking(train_src_path, train_dst_path, test_src_path, test_dst_path, src_lang, dst_lang, bm25_file_name, is_ranking_for_devset)
-        elif strategy == RANKINGS_BM25_AND_LABSE_QUERY_DST:
-            result = get_3way_ranking(train_src_path, train_dst_path, test_src_path, test_dst_path, src_lang, dst_lang, bm25_file_name, is_ranking_for_devset, flag=QUERY_DST)
-        elif strategy == RANKINGS_BM25_AND_LABSE_SRC_DST:
-            result = get_3way_ranking(train_src_path, train_dst_path, test_src_path, test_dst_path, src_lang, dst_lang, bm25_file_name, is_ranking_for_devset, flag=SRC_DST)
         elif strategy == RANKINGS_BM25_AND_CHRF:
             result = get_chrf_ranking(train_src_path, train_dst_path, test_src_path, test_dst_path, src_lang, dst_lang, bm25_file_name, is_ranking_for_devset)
         elif strategy == RANKINGS_BM25_AND_3_WAY:
-            result = get_3way_ranking(train_src_path, train_dst_path, test_src_path, test_dst_path, src_lang, dst_lang, bm25_file_name, is_ranking_for_devset, flag=ALL)
-        # elif strategy == RANKINGS_BM25_AND_3_WAY_ORACLE:
-        #     result = get_3way_oracle_ranking(train_src_path, train_dst_path, test_src_path, test_dst_path, src_lang, dst_lang, bm25_file_name, is_ranking_for_devset)
+            result = get_3way_ranking(train_src_path, train_dst_path, test_src_path, test_dst_path, src_lang, dst_lang, bm25_file_name, is_ranking_for_devset)
         elif strategy == RANKINGS_NO_OF_TOKENS:
             result = get_no_of_tokens(train_src_path, train_dst_path, test_src_path, test_dst_path, src_lang, dst_lang, bm25_file_name, is_ranking_for_devset)
         elif strategy == RANKINGS_BM25_AND_PERPLEXITY:
@@ -83,10 +75,8 @@ def main():
     use_xglm_model = True if args.xglm else False
 
     if strategy == 'all':
-        for s in [RANKINGS_BM25, RANKINGS_BM25_AND_RERANKING, RANKINGS_COMET_QA, 
-                  RANKINGS_BM25_AND_LABSE, RANKINGS_BM25_AND_LABSE_QUERY_DST, RANKINGS_BM25_AND_LABSE_SRC_DST,
-                  RANKINGS_BM25_AND_CHRF, RANKINGS_BM25_AND_3_WAY, RANKINGS_BM25_AND_3_WAY_ORACLE, 
-                  RANKINGS_NO_OF_TOKENS]: # RANKINGS_BM25_AND_PERPLEXITY, 
+        for s in [RANKINGS_BM25, RANKINGS_BM25_AND_RERANKING, RANKINGS_BM25_AND_CHRF, RANKINGS_NO_OF_TOKENS,
+                  RANKINGS_COMET_QA, RANKINGS_BM25_AND_3_WAY, RANKINGS_BM25_AND_PERPLEXITY]:
             generate_ranking(training_source, testing_source, src_lang, dst_lang, s, is_ranking_for_devset, use_xglm_model)
 
     else:
