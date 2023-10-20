@@ -74,3 +74,17 @@ RANKINGS_BM25_REGRESSION = 'rankings_bm25_regression'
 COMET_QE_20_REGRESSION = 'comet_qe_20_regression' 
 
 BATCH_SIZE = 8
+
+
+# constants for CTQScorer
+COMET_SCORE = 'comet_score'
+BLEU_SCORE = 'bleu_score'
+SAVED_MODELS = 'saved_models'
+DATASET_TRAIN = 'dataset_train'
+DATASET_TEST = 'dataset_test'
+
+training_source = EUROPARL
+testing_source = FLORES
+src_lang = FRA_LATN
+dst_lang = ENG_LATN
+approach = 'comet_qe_20_regression'

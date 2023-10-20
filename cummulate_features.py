@@ -102,7 +102,8 @@ def convert_to_csv(cummulated_features_json_data, ctqscorer_train_csv_file_name,
     header = ['qid', 'index']
     header.extend(features)
     if is_ranking_for_devset and ctqscorer_scores_file:
-        header.extend(['qid', 'index', 'comet_score', 'bleu_score', 'comet_qe_20_score', 'comet_da_22_score'])
+        # 'qid_tmp' is same as 'qid'. 'index_tmp' is same as 'index'. Adding them to ensure they match when merging scores and rankings file.
+        header.extend(['qid_tmp', 'index_tmp', 'comet_score', 'bleu_score', 'comet_qe_20_score', 'comet_da_22_score'])
         scores = []
         with open(ctqscorer_scores_file, 'r') as f:
             scores = f.read().splitlines()

@@ -136,3 +136,7 @@ def get_cos_sim_for_sents(samples1, samples2):
     cos_sim = []
     cos_sim.extend(torch.diag(cos_sim_mat, 0).tolist())
     return np.mean(cos_sim)
+
+def set_seed():
+    torch.manual_seed(42)
+    np.random.seed(42)
