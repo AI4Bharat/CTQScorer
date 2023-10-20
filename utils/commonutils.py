@@ -96,6 +96,10 @@ def write_json_to_file(jsondata, file_path):
     with open(file_path, 'w') as f:
         json.dump(jsondata, f, indent=4, ensure_ascii=False)
 
+def get_json_data(filename):
+    with open(filename, 'r') as f:
+        json_data = json.load(f)
+    return json_data
 
 def get_random_name():
     # generate random name for file to map the configuration
