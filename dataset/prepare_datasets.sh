@@ -20,3 +20,4 @@ python extract_data.py
 rm europarl-v10.de-en.tsv || true
 rm europarl-v10.fr-en.tsv || true
 rm en-ru.txt || true
+rm -r samanantar/en-te/en-* || true
