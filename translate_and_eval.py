@@ -2,33 +2,13 @@
 # ### Imports and libraries
 
 # %%
-from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
-import torch
-from torch.utils.data import Dataset
-from tqdm.auto import tqdm
-
-# %%
-from sacrebleu import sentence_bleu, corpus_bleu
-from comet import download_model, load_from_checkpoint
-from evaluate import load
-
-# %%
-import ntpath
-import random
-import json
-import os
-import string
-import time
-import logging
-import re
 import numpy as np
-import matplotlib.pyplot as plt
-from collections import Counter
+from sacrebleu import corpus_bleu
+import argparse
+import logging
 
-# %%
 # utils
-from utils.commonutils import load_samples, make_dir, get_random_name, append_config_to_file, lang_abbr_to_lang_code, lang_abbr_to_lang
-from utils.utils_data import get_train_test_data
+from utils.commonutils import make_dir, get_random_name, append_config_to_file, lang_abbr_to_lang, init_logging
 from utils.constants import *
 from model_parameters import model_parameters
 
@@ -42,10 +22,10 @@ from preprocess_prompts import handle_repetitive_examples
 
 # scoring functions
 from scoring_functions import init_comet_computation, init_comet_qe_20_computation, init_comet_da_22_computation, init_chrf
-from scoring_functions import get_chrf_scores, get_comet_scores, get_comet_mean_score, get_comet_qe_20_scores, get_comet_da_22_scores
+from scoring_functions import get_chrf_scores, get_comet_mean_score, get_comet_qe_20_scores, get_comet_da_22_scores
 
 # helper functions
-from helper_functions import read_recommendations, get_samples, clear_gpu_memory, get_model
+from helper_functions import read_recommendations, get_samples, get_model
 
 # %% [markdown]
 # ### Initiating Scoring functions
@@ -210,35 +190,57 @@ def get_bleu_scores(pipe, mp: model_parameters, experiment=''):
     with open(scores_file, 'a') as f:
         f.write('{},{},{},{},{},{},{},{},{},{},{},{},{}\n'.format(model_name, mp.type_of_algo, src_lang, dst_lang, mp.no_of_shots, blue_score, comet_score, chrf_score, chrfpp_score, comet_qe_20_score, comet_da_22_score, mp.use_8_bit, random_name))
 
-# %% [markdown]
-# ### Machine Translation and Evaluation
 
-# %%
-# name = "facebook/opt-6.7b", BLOOM_3B, BLOOM_7B, XGLM_7B
-name = BLOOM_7B
+def main():
+    init_logging('translate_and_eval.log')
 
-# parameters for the model
-mp = model_parameters(name=name)
-
-# must use 8-bit inferencing if it is XGLM
-# also make sure we use transformers==4.28.1
-if name == XGLM_7B:
-    mp.use_8_bit=True
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--train_src", help="training source to be used")
+    parser.add_argument("--test_src", help="testing source to be used")
+    parser.add_argument("--src_lang", help="source language")
+    parser.add_argument("--dst_lang", help="destination language")
+    parser.add_argument("--algorithm", help="Algorithm for translating")
+    # optinal arguments
+    parser.add_argument("--xglm", help="Is the model used xglm?", action="store_true")
+    parser.add_argument("--shots", type=int, default=4, choices=range(0, 10), help="Number of shots?", required=False)
+    parser.add_argument("--b2w", help="Orders examples from best to worst scores", action="store_true")
+    parser.add_argument("--experiment", help="name/tag for the experiment", required=False)
+    args = parser.parse_args()
     
-# generate pipe and use the same pipe instead of creating one each time
-pipe = get_model(mp.name, type_of_algo=mp.type_of_algo, use_8_bit=mp.use_8_bit)
+    logging.info(args)
+    # %% [markdown]
+    # ### Machine Translation and Evaluation
 
-# %%
-mp.training_source=SAMANANTAR
-mp.testing_source=FLORES
-mp.has_reranking=True
-mp.inc_reranking=True
-mp.no_of_shots=4
-mp.strategy = RANKINGS_BM25
-mp.src_lang=BEN_BENG
-mp.dst_lang=ENG_LATN
+    # %%
+    # name = "facebook/opt-6.7b", BLOOM_3B, BLOOM_7B, XGLM_7B
+    name = XGLM_7B if args.xglm else BLOOM_7B
 
-experiment = 'exp_120_test'
-get_bleu_scores(pipe, mp, experiment='{}.1'.format(experiment))
+    # parameters for the model
+    mp = model_parameters(name=name)
+
+    # must use 8-bit inferencing if it is XGLM
+    # also make sure we use transformers==4.28.1
+    if name == XGLM_7B:
+        mp.use_8_bit=True
+        
+    # generate pipe and use the same pipe instead of creating one each time
+    pipe = get_model(mp.name, type_of_algo=mp.type_of_algo, use_8_bit=mp.use_8_bit)
+
+    # %%
+    mp.training_source=args.train_src
+    mp.testing_source=args.test_src
+    mp.src_lang=args.dst_lang
+    mp.dst_lang=args.src_lang
+    mp.strategy=args.algorithm
+
+    # optional paramters
+    mp.has_reranking = False if mp.strategy == RANDOM_SELECTION else True
+    mp.inc_reranking = False if args.b2w else True
+    mp.no_of_shots = int(args.shots)
+    experiment = args.experiment if args.experiment else '' 
+    get_bleu_scores(pipe, mp, experiment='{}'.format(experiment))
 
 
+if __name__ == '__main__':
+    main()
+    

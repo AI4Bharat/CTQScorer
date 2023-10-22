@@ -83,7 +83,7 @@ def main():
         generate_ranking(training_source, testing_source, src_lang, dst_lang, algorithm, is_ranking_for_devset, use_xglm_model)
     
 
-# usage: python rankings_generate.py --train samanantar --test flores --src hin_Deva --dst eng_Latn --strategy rankings_no_of_tokens
+# usage: python rankings_generate.py --train_src samanantar --test_src flores --src_lang hin_Deva --dst_lang eng_Latn --algorithm rankings_no_of_tokens
 if __name__ == '__main__':
     main()
     
