@@ -13,8 +13,9 @@ import copy
 import numpy as np
 import pandas as pd
 import functools
+import argparse
 
-from utils.commonutils import make_dir, set_seed
+from utils.commonutils import make_dir, set_seed, init_logging
 from utils.constants import *
 from NeuralNet import NeuralNet, get_activation_func, get_optimizer
 
@@ -304,66 +305,85 @@ def run_train_sweeps(X_train, y_train, X_val, y_val, X_test, y_test, x_scalar, f
     wandb.finish()
 
 
-# %% [markdown]
-# ### Main function
+def main():    
+    # ### Main function
+    init_logging('ctqscorer.log')
+    
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--train_src", help="training source to be used")
+    parser.add_argument("--test_src", help="testing source to be used")
+    parser.add_argument("--src_lang", help="source language")
+    parser.add_argument("--dst_lang", help="destination language")
+    parser.add_argument("--train", help="Is the model being xglm?", action="store_true")
+    
+    # arguments in case of inference
+    parser.add_argument("--activation", help="activation function name (relu/tanh/sigmoid)")
+    parser.add_argument("--batch_size", type=int, help="batch size", default=64)
+    parser.add_argument("--learning_rate", type=float, help="learning rate", default=0.01)
+    parser.add_argument("--neurons_hidden_layer", type=int, help="number of neurons in each hidden layer", default=128)
+    parser.add_argument("--no_of_hidden_layer", type=int, help="number of hidden layers", default=4)
+    parser.add_argument("--epochs", type=int, help="number of epochs", default=40)
+    parser.add_argument("--optimizer", help="optimizer function name (adam,rmsprop,sgd)")
+    parser.add_argument("--weight_decay", type=float, help="weight decay", default=0)
+    args = parser.parse_args()
+    
+    # Inputs
+    training_source = args.train_src
+    testing_source = args.test_src
+    src_lang = args.dst_lang
+    dst_lang = args.src_lang
 
-# %%
-# Inputs
-training_source = EUROPARL
-testing_source = FLORES
-src_lang = FRA_LATN
-dst_lang = ENG_LATN
+    # We excluded SRC_PPL, DST_PPL features. Any new feature must be incorporated here
+    features = [NO_OF_TOKENS_IN_QUERY, 
+                NO_OF_TOKENS_IN_SRC_SENT, 
+                NO_OF_TOKENS_IN_DST_SENT,
+                LABSE_SCORE_QUERY_SRC, 
+                LABSE_SCORE_QUERY_DST, 
+                LABSE_SCORE_SRC_DST,
+                CHRF_SCORE, 
+                COMET_QE_QUERY_SRC_SCORE, 
+                COMET_QE_QUERY_DST_SCORE, 
+                COMET_QE_SRC_DST_SCORE,
+                SRC_DST_PPL, 
+                SRC_DST_QUERY_PPL] 
 
-# We excluded SRC_PPL, DST_PPL features. Any new feature must be incorporated here
-features = [NO_OF_TOKENS_IN_QUERY, 
-            NO_OF_TOKENS_IN_SRC_SENT, 
-            NO_OF_TOKENS_IN_DST_SENT,
-            LABSE_SCORE_QUERY_SRC, 
-            LABSE_SCORE_QUERY_DST, 
-            LABSE_SCORE_SRC_DST,
-            CHRF_SCORE, 
-            COMET_QE_QUERY_SRC_SCORE, 
-            COMET_QE_QUERY_DST_SCORE, 
-            COMET_QE_SRC_DST_SCORE,
-            SRC_DST_PPL, 
-            SRC_DST_QUERY_PPL] 
+    # use cuda if available
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-# use cuda if available
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    X_train, y_train, X_val, y_val, X_test, y_test, x_scalar = data_preprocessing(training_source, src_lang, dst_lang, features, device)
 
-X_train, y_train, X_val, y_val, X_test, y_test, x_scalar = data_preprocessing(training_source, src_lang, dst_lang, features, device)
+    if args.train:
+        # login to wandb, update your project, entity accordingly 
+        wandb.login()
+        sweep_config = get_sweep_config(training_source, src_lang, dst_lang)
+        sweep_id = wandb.sweep(sweep_config, project="CTQScorer")
 
-# %%
-# login to wandb, update your project, entity accordingly 
-wandb.login()
-sweep_config = get_sweep_config(training_source, src_lang, dst_lang)
-sweep_id = wandb.sweep(sweep_config, project="CTQScorer")
+        # Code to train model
+        try:
+            wandb_train_func = functools.partial(run_train_sweeps, X_train, y_train, X_val, y_val, X_test, y_test, x_scalar, features, device)
+            wandb.agent(sweep_id, function=wandb_train_func, count=40)
+        except:
+            pass
 
-# Code to train model
-try:
-    wandb_train_func = functools.partial(run_train_sweeps, X_train, y_train, X_val, y_val, X_test, y_test, x_scalar, features, device)
-    wandb.agent(sweep_id, function=wandb_train_func, count=40)
-except:
-    pass
+    else:
+        # use the best tuned model and generate CTQScorer ranking
+        ### update the below values based on the best hyperparameters in wandb
+        activation_func_name = args.activation
+        batch_size = args.batch_size
+        learning_rate = args.learning_rate
+        neurons_hidden_layer = args.neurons_hidden_layer
+        no_of_hidden_layer = args.no_of_hidden_layer
+        n_epochs = args.epochs
+        optimizer_func_name = args.optimizer
+        weight_decay = args.weight_decay
+        ### update the above values based on the best hyperparameters in wandb
 
-# %%
-# use the best tuned model and generate CTQScorer ranking
+        model = get_best_model(X_train, y_train, X_val, y_val, X_test, y_test, x_scalar, features, device, src_lang, dst_lang,
+                            activation_func_name, batch_size, learning_rate, neurons_hidden_layer, no_of_hidden_layer, n_epochs, optimizer_func_name, weight_decay)
 
-### update the below values based on the best hyperparameters in wandb
-activation_func_name = 'relu'
-batch_size = 64
-learning_rate = 0.01
-neurons_hidden_layer = 128
-no_of_hidden_layer = 4
-n_epochs = 40
-optimizer_func_name = 'adam'
-weight_decay = 0
-### update the above values based on the best hyperparameters in wandb
-
-model = get_best_model(X_train, y_train, X_val, y_val, X_test, y_test, x_scalar, features, device, src_lang, dst_lang,
-                       activation_func_name, batch_size, learning_rate, neurons_hidden_layer, no_of_hidden_layer, n_epochs, optimizer_func_name, weight_decay)
-
-# Use best model to predict CTQ scores for the test dataset
-generate_ctqscorer_ranking(training_source, testing_source, src_lang, dst_lang, x_scalar, features, device, model)
+        # Use best model to predict CTQ scores for the test dataset
+        generate_ctqscorer_ranking(training_source, testing_source, src_lang, dst_lang, x_scalar, features, device, model)
 
 
+if __name__ == '__main__':
+    main()
