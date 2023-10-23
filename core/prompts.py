@@ -1,5 +1,5 @@
 import random
-from model_parameters import model_parameters
+from .model_parameters import model_parameters
 
 
 # returns n-shot example for the given source and target languages.
