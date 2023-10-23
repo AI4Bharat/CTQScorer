@@ -79,7 +79,7 @@ def get_ctq_scores(pipe, mp: model_parameters, experiment=''):
             recommendations = rankings[str(qid)]
 
             # recommendation structure has been changed
-            if mp.strategy == RANKINGS_BM25_REGRESSION:
+            if mp.strategy == RANKINGS_BM25:
                 # recommendations are in [{ "index": 630729, "score": 37.21}, ... ]
                 recommendations = list(map(lambda x: x["index"], recommendations))
 
@@ -153,7 +153,7 @@ def main():
     mp.testing_source = args.test
     mp.src_lang = args.src
     mp.dst_lang = args.dst
-    mp.strategy = RANKINGS_BM25_REGRESSION
+    mp.strategy = RANKINGS_BM25
     mp.has_reranking = True
 
     # generate pipe and use the same pipe

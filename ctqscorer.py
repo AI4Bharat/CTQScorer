@@ -314,7 +314,7 @@ def main():
     parser.add_argument("--test_src", help="testing source to be used")
     parser.add_argument("--src_lang", help="source language")
     parser.add_argument("--dst_lang", help="destination language")
-    parser.add_argument("--train", help="Is the model being xglm?", action="store_true")
+    parser.add_argument("--train", help="Is the model being trained?", action="store_true")
     
     # arguments in case of inference
     parser.add_argument("--activation", help="activation function name (relu/tanh/sigmoid)")

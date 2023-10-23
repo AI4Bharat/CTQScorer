@@ -90,3 +90,4 @@ dst_lang = ENG_LATN
 approach = 'comet_qe_20_regression'
 
 EXAMPLE_SELECTION_TEST_DATA = 'example_selection_test_data'
+EXAMPLE_SELECTION_TRAIN_DATA = 'example_selection_train_data'

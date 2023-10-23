@@ -13,7 +13,7 @@ def get_recommendation_file_name(selection, training_source, testing_source, src
     recommendations = 'recommendations_{}_{}_{}_{}.json'.format(training_source, testing_source, src_lang, dst_lang)
     path = '{}/{}/{}'.format(EXAMPLE_SELECTION_TEST_DATA, selection, recommendations)
     if is_ranking_for_devset:
-        path = '{}/{}/{}'.format('rankings_bm25_regression', selection, recommendations)
+        path = '{}/{}/{}'.format(EXAMPLE_SELECTION_TRAIN_DATA, selection, recommendations)
     return path
 
 
