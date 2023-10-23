@@ -88,3 +88,5 @@ testing_source = FLORES
 src_lang = FRA_LATN
 dst_lang = ENG_LATN
 approach = 'comet_qe_20_regression'
+
+EXAMPLE_SELECTION_TEST_DATA = 'example_selection_test_data'

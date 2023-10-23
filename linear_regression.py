@@ -134,8 +134,8 @@ def generate_ctqscorer_ranking(training_source, testing_source, src_lang, dst_la
         result[qid] = ranking
 
     # write score to a JSON file
-    make_dir('{}'.format(RANKINGS_LINEAR_REGRESSION))
-    with open('{}/recommendations_{}_{}_{}_{}.json'.format(RANKINGS_LINEAR_REGRESSION, training_source, testing_source, src_lang, dst_lang), 'w') as f:
+    make_dir('{}/{}'.format(EXAMPLE_SELECTION_TEST_DATA, RANKINGS_LINEAR_REGRESSION))
+    with open('{}/{}/recommendations_{}_{}_{}_{}.json'.format(EXAMPLE_SELECTION_TEST_DATA, RANKINGS_LINEAR_REGRESSION, training_source, testing_source, src_lang, dst_lang), 'w') as f:
         json.dump(result, f, indent=4, ensure_ascii=False)
 
 # %% [markdown]

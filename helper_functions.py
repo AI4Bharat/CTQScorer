@@ -4,21 +4,21 @@ import torch
 
 from utils.utils_data import get_train_test_data
 from utils.commonutils import load_samples
-from utils.constants import BLOOM_7B, XGLM_7B
+from utils.constants import BLOOM_7B, XGLM_7B, EXAMPLE_SELECTION_TEST_DATA
 
 
 # reads the recommendations obtained from BM25 and reranking algorithm
-def read_recommendations(strategy, training_source, testing_source, src_lang, dst_lang, strategy_nested=''):
+def read_recommendations(strategy, training_source, testing_source, src_lang, dst_lang, is_train_data=False):
     json_data = {}
 
-    if strategy_nested == '':
+    if is_train_data:
         recommendations = 'recommendations_{}_{}_{}_{}.json'.format(training_source, testing_source, src_lang, dst_lang)
         ranking_file_name = '{}/{}'.format(strategy, recommendations)
         with open(ranking_file_name, 'r') as f:
             json_data = json.load(f)
     else:
         recommendations = 'recommendations_{}_{}_{}_{}.json'.format(training_source, testing_source, src_lang, dst_lang)
-        ranking_file_name = '{}/{}/{}'.format(strategy, strategy_nested, recommendations)
+        ranking_file_name = '{}/{}/{}'.format(EXAMPLE_SELECTION_TEST_DATA, strategy, recommendations)
         with open(ranking_file_name, 'r') as f:
             json_data = json.load(f)
     

@@ -5,15 +5,15 @@ import logging
 import argparse
 
 # constants
-FEATURES_FOLDER = 'rankings_bm25_regression'
 DATASET_TRAIN = 'dataset_train'
 DATASET_TEST = 'dataset_test'
 
 
 def get_recommendation_file_name(selection, training_source, testing_source, src_lang, dst_lang, is_ranking_for_devset):
-    path = '{}/recommendations_{}_{}_{}_{}.json'.format(selection, training_source, testing_source, src_lang, dst_lang)
+    recommendations = 'recommendations_{}_{}_{}_{}.json'.format(training_source, testing_source, src_lang, dst_lang)
+    path = '{}/{}/{}'.format(EXAMPLE_SELECTION_TEST_DATA, selection, recommendations)
     if is_ranking_for_devset:
-        path = '{}/{}/recommendations_{}_{}_{}_{}.json'.format(FEATURES_FOLDER, selection, training_source, testing_source, src_lang, dst_lang)
+        path = '{}/{}/{}'.format('rankings_bm25_regression', selection, recommendations)
     return path
 
 

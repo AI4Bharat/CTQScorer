@@ -57,7 +57,7 @@ def get_ctq_scores(pipe, mp: model_parameters, experiment=''):
 
     # get ranking of dev samples if reranking flag is true
     if mp.has_reranking:
-        rankings = read_recommendations(mp.strategy, mp.training_source, mp.testing_source, mp.src_lang, mp.dst_lang)
+        rankings = read_recommendations(mp.strategy, mp.training_source, mp.testing_source, mp.src_lang, mp.dst_lang, is_train_data=True)
         if len(rankings) == 0:
             print('No ranking found for: {}'.format(src_lang))
 

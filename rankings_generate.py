@@ -14,7 +14,7 @@ def generate_ranking(training_source, testing_source, src_lang, dst_lang, algori
 
     # other rankings use bm25 ranking, so generate a path for it 
     recommendations = 'recommendations_{}_{}_{}_{}.json'.format(training_source, testing_source, src_lang, dst_lang)
-    bm25_file_name = 'rankings_bm25_regression/{}'.format(recommendations) if is_ranking_for_devset else 'rankings_bm25/{}'.format(recommendations)
+    bm25_file_name = 'rankings_bm25_regression/{}'.format(recommendations) if is_ranking_for_devset else '{}/rankings_bm25/{}'.format(EXAMPLE_SELECTION_TEST_DATA, recommendations)
 
     # compute ranking
     if algorithm == RANKINGS_BM25:
@@ -42,11 +42,11 @@ def generate_ranking(training_source, testing_source, src_lang, dst_lang, algori
             return
 
         # write ranking to file
-        ranking_file_name = 'rankings_bm25_regression/{}/{}'.format(algorithm, recommendations) if is_ranking_for_devset else '{}/{}'.format(algorithm, recommendations)
+        ranking_file_name = 'rankings_bm25_regression/{}/{}'.format(algorithm, recommendations) if is_ranking_for_devset else '{}/{}/{}'.format(EXAMPLE_SELECTION_TEST_DATA, algorithm, recommendations)
         if is_ranking_for_devset:
             make_dir('rankings_bm25_regression/{}'.format(algorithm))
         else:
-            make_dir(algorithm)
+            make_dir('{}/{}'.format(EXAMPLE_SELECTION_TEST_DATA, algorithm))
         write_json_to_file(result, ranking_file_name)
 
 
