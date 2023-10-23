@@ -1,0 +1,18 @@
+# Ignore datasets
+samanantar/
+europarl/
+paracrawl/
+*.gz
+*.tsv
+*.zip
+
+# cached files
+*.pyc
+
+# logs
+logs/
+*.log
+nohup.out
+
+# outputs
+.DS_Store
