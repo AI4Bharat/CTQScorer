@@ -1,6 +1,6 @@
 # CTQScorer
 
-Implementation of the Example Selection framework, evaluation and experiments in our paper: [CTQScorer: Combining Multiple Features for In-context Example Selection for Machine Translation](https://arxiv.org/abs/2305.14105).
+Implementation of the Example Selection framework, evaluation and experiments in our EMNLP 2023 paper: [CTQScorer: Combining Multiple Features for In-context Example Selection for Machine Translation](https://arxiv.org/abs/2305.14105).
 ```
 @article{kumar2023context,
   title={In-context Example Selection for Machine Translation Using Multiple Features},
@@ -35,7 +35,7 @@ chmod +x prepare_datasets.sh
 ./prepare_datasets.sh
 ```
 
-After downloading, you'll have multiple sub-folders with multipe files in each sub-folder. The folders `europarl`, `paracrawl` and `samanantar` are parallel datasets with two files in each sub-folder, `train.xx` and `train.en`. The folders `test` and `train` are test and dev sets from `FLORES`. The folder structure will be as follows:
+After downloading, you'll have multiple sub-folders with multiple files in each sub-folder. The folders `europarl`, `paracrawl` and `samanantar` are parallel datasets with two files in each sub-folder, `train.xx` and `train.en.` The folders `test` and `train` are the test and development sets from `FLORES`. The folder structure will be as follows:
 ```
 dataset
 ├── europarl
@@ -140,10 +140,10 @@ dataset
 ```
 
 ## 1. Example Quality Features
-Since the number of examples are in huge number, it is not possible to compute all Example Quality features for them. We chose ```BM25``` algorithm to filter and get a pool of 100 examples for each input sample. From these pool of examples we apply different algorithms and rank the examples. The algorithms can be found in the ```generateranking``` folder. 
+Since there is a large number of examples in the Example Database (dataset folder), it is not possible to compute all Example Quality features for them. We choose the `BM25` algorithm to filter and obtain a pool of 100 examples for each input sample. From this pool of examples, we apply different algorithms and rank them. The algorithms can be found in the `generateranking` folder.
 
 ### 1.1 Algorithms
-We choose several alogirthms relevant to example selection based on features like example similarity, example quality and perplexity based features. The algorithm and the features based on which it ranks is as follows: 
+We choose several algorithms relevant to example selection based on features like example similarity, example quality, and perplexity-based features. The algorithm and the features based on which it ranks are as follows:
 
 |Algorithm|Feature(s) computed|
 |:----|:----|
@@ -156,7 +156,7 @@ We choose several alogirthms relevant to example selection based on features lik
 |rankings_no_of_tokens|NumTokIn, NumTokSrc, NumTokTgt|
 
 ### 1.2 Running the Example quality ranking algorithm
-The code to run the algorithm is present in the file ```rankings_generate.py```. It can be ran in a shell script for all features as in shown in script ```rankings_generate.sh``` or can be ran using the below command for each language/feature:
+The code to run the algorithm is present in the file `rankings_generate.py`. It can be run in a shell script for all features, as shown in the script `rankings_generate.sh`, or it can be run using the following command for each language/feature:
 
 ```
 python rankings_generate.py \
@@ -184,7 +184,7 @@ Adding `--devset` picks the examples from devset else from testset for `test_src
 Adding `--xglm` the model uses xglm for computing perplexity features else it uses bloom model.
 
 ### 1.3 Ranking format
-The rankings based on each feature is stored in json files as below for each language tranlation direction.
+The rankings based on each feature are stored in JSON files for each language translation direction.
 ```
 rankings_bm25
 ├── recommendations_europarl_flores_deu_Latn_eng_Latn.json
@@ -201,7 +201,7 @@ rankings_bm25
 └── recommendations_samanantar_flores_hin_Deva_eng_Latn.json
 ```
 
-Inside each json file, for each input sample index, 100 indexes from example database are stored and sorted based on their scores. The ranking is stored as below:
+Inside each JSON file, for each input sample index, 100 indexes from the example database are stored and sorted based on their scores. The ranking is stored as follows:
 ```
 {
     "0": [
@@ -225,10 +225,10 @@ Inside each json file, for each input sample index, 100 indexes from example dat
 }
 ```
 
-For convinence, we computed the rankings across all features/langauges and added to the repository.
+For convenience, we computed the rankings across all features/languages and added them to the repository. They are stored in the `example_selection_test_data` folder for the test set and `example_selection_train_data` for the training set.
 
 ## 2. Generate Machine Translation
-Using the below command you can get the Machine Translation from the model as well as the translation quality. 
+Using the command below, you can obtain machine translations from the model and assess the translation quality using different algorithms for example selection.
 
 ```
 python translate_and_eval.py \
@@ -254,14 +254,13 @@ Optionals arguments:
 `--experiment` - name/tag to keep track of the experiment
 
 
-The translated sentences are stored inside the `outputs` folder where each file corresponds to an input testset. The translation quality is stored in `outputs/scores.csv` file. We also keep track of the prompts in the `prompts` folder.
-
-
+The translated sentences are stored inside the `outputs` folder, where each file corresponds to an input test set. The translation quality is saved in the `outputs/scores.csv` file. We also keep track of the prompts in the `prompts` folder.
 
 ## 3. CTQScorer: Example Selection framework
+![Design](design.png)
 
 ### 3.1 Generating training data
-To learn the CTQScorer, we need to generate training data. We used flores devset as input samples and existing Example database as training samples and generated the CTQ scores. This scores in combination with the example features collected for the same samples forms the training data. Flores devset has 997 samples and by choosing a pool of 100 BM25 pairs for each sample, we would be getting 99700 (997 x 100) samples as our training data for each language. For our experiments we tried to learn COMET score as CTQScore (but it can be any other translation quality metric). This is the command to generate training data:
+To train the CTQScorer, we need to generate training data. We used the Flores devset as input samples and the existing Example database as training samples to generate the CTQ scores. These scores, in combination with the example features collected for the same samples, form the training data. The Flores devset consists of 997 samples, and by choosing a pool of 100 BM25 pairs for each sample, we generate 99,700 (997 x 100) samples as our training data for each language. For our experiments, we attempted to learn the COMET score as the CTQScore (although it can be any other translation quality metric). The following is the command to generate training data:
 ```
 python generate_ctqscorer_train_data.py \
 --train_src {train_src} \
@@ -278,7 +277,7 @@ Optional argument:
 Refer the script `generate_ctqscorer_train_data.sh` for generating training data for all languages.
 
 ### 3.2 Cummulating translation scores and features
-In the above script, we obtained Y part of the dataset. Using the command for computing Example Features quality, we can obtain the X part for the devset. Run the below command to combine both X and Y and obtain training data:
+In the above script, we obtained the Y part of the dataset. Using the command for computing Example Features quality, we can obtain the X part for the devset. Run the command below to combine both X and Y and obtain training data:
 ```
 python cummulate_features.py \
 --train_src {train_src} \
@@ -289,7 +288,7 @@ python cummulate_features.py \
 ```
 `--train_src`, `--test_src`, `--src_lang`, `--dst_lang` mean the same as mentioned in previous sections.
 
-The cummulated training dataset is stored inside the `dataset_train` folder with each file as `{train_src}_{src_lang}_{dst_lang}.csv`. Command for the same is:
+The cummulated training dataset is stored inside the `dataset_train` folder, with each file as `{train_src}_{src_lang}_{dst_lang}.csv`. The command for this is:
 
 <br>
 
@@ -304,7 +303,7 @@ python cummulate_features.py \
 The cummulated testset is stored inside the `dataset_test` folder.
 
 ### 3.3 Training CTQScorer
-Now that the training data is ready, we can train the CTQScorer. The below command requires the user to login to wandb, where the best hyperparameters are recoreded:
+Now that the training data is ready, we can train the CTQScorer. The command below requires the user to log in to Wandb, where the best hyperparameters are recorded:
 ```
 python ctqscorer.py \
 --train_src {train_src} \
@@ -314,7 +313,7 @@ python ctqscorer.py \
 --train >> ctqscorer.log
 ```
 
-Once the training is completed, make note of the best hyperparameters from wandb. We can predict the CTQScorer scores for input samples by updating the best hyperparameters in the below command:
+Once the training is completed, take note of the best hyperparameters from Wandb. You can predict the CTQScorer scores for input samples by updating the best hyperparameters in the command below:
 ```
 python ctqscorer.py \
 --train_src {train_src} \
@@ -331,7 +330,7 @@ python ctqscorer.py \
 --weight_decay {weight decay} >> ctqscorer.log
 ```
 
-The above commands generates a file in `rankings_regression` folder where each example index is sorted based on the CTQ score. We can now get the translation quality by selecting the examples based on CTQ scores using below command:
+The commands above generate a file in the `example_selection_test_data/rankings_regression` folder where each example index is sorted based on the CTQ score. You can now assess the translation quality by selecting the examples based on CTQ scores using the command below:
 
 ```
 python translate_and_eval.py \
@@ -344,7 +343,7 @@ python translate_and_eval.py \
 ```
 
 ## 4. Baselines
-The COMET scores for all the baselines and example selection based on individual features while translating to English is presented below:
+The COMET scores for all the baselines and example selection based on individual features while translating to English are presented below:
 |<b>Selection Method</b>|<b>bn</b>|<b>gu</b>|<b>hi</b>|<b>de</b>|<b>fr</b>|<b>ru</b>|<b>Average</b>|
 |:----|:----|:----|:----|:----|:----|:----|:----|
 |Random Selection|40.07|38.27|44.52|63.05|70.89|49.40|51.03|
@@ -366,9 +365,10 @@ The COMET scores for all the baselines and example selection based on individual
 |ScAvg (3-feat)|42.75|41.20|48.35|62.63|70.61|43.99|51.59| 
 |CTQ   (3-feat)|42.07|40.65|49.63|63.77|70.85|49.31|52.71|  
 
-## 5. Misc
-We also trained the model using linear_regression and obtained the results for the same. The salient feature analysis for the same is present in the file `linear_regression.py`.
+We have also included the translation scores (using different metrics) for multiple translation directions in the `outputs/scores.csv` file. Additionally, each row in the file consists of a `file ID` which can be used to refer to the translations generated by the model in the same 'outputs' folder.
 
+## 5. Misc
+We also trained the model using linear regression and obtained the results for the same. The salient feature analysis for this can be found in the file `linear_regression.py`.
 
 ## License
 The CTQScorer code is released under the MIT License.
