@@ -13,3 +13,6 @@ paracrawl/
 logs/
 *.log
 nohup.out
+
+# outputs
+.DS_Store

@@ -10,19 +10,19 @@ import logging
 # utils
 from utils.commonutils import make_dir, get_random_name, append_config_to_file, lang_abbr_to_lang, init_logging
 from utils.constants import *
-from model_parameters import model_parameters
+from core.model_parameters import model_parameters
 
 # prompt construction
-from prompts import get_n_shots, construct_zero_shot, construct_prompt
+from core.prompts import get_n_shots, construct_zero_shot, construct_prompt
 
 # Preprocessing prompts, batching prompts and post processing outputs
-from MTDataset import MTDataset
-from process_outputs import predict_outputs
-from preprocess_prompts import handle_repetitive_examples
+from core.MTDataset import MTDataset
+from core.process_outputs import predict_outputs
+from core.preprocess_prompts import handle_repetitive_examples
 
 # scoring functions
-from scoring_functions import init_comet_computation, init_comet_qe_20_computation, init_comet_da_22_computation, init_chrf
-from scoring_functions import get_chrf_scores, get_comet_mean_score, get_comet_qe_20_scores, get_comet_da_22_scores
+from core.scoring_functions import init_comet_computation, init_comet_qe_20_computation, init_comet_da_22_computation, init_chrf
+from core.scoring_functions import get_chrf_scores, get_comet_mean_score, get_comet_qe_20_scores, get_comet_da_22_scores
 
 # helper functions
 from helper_functions import read_recommendations, get_samples, get_model

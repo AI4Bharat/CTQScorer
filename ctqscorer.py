@@ -17,7 +17,7 @@ import argparse
 
 from utils.commonutils import make_dir, set_seed, init_logging
 from utils.constants import *
-from NeuralNet import NeuralNet, get_activation_func, get_optimizer
+from core.NeuralNet import NeuralNet, get_activation_func, get_optimizer
 
 # %% [markdown]
 # ### Load and process data
